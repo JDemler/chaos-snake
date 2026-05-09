@@ -1,6 +1,94 @@
+* { box-sizing: border-box; }
+
 body {
     font-family: system-ui, sans-serif;
-    margin: 2rem;
+    margin: 0;
     background: #111;
     color: #eee;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+header {
+    padding: 0.75rem 1rem;
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.4rem;
+}
+
+header span {
+    font-size: 0.9rem;
+    color: #aaa;
+}
+
+#join {
+    margin: 0.25rem 0 0.75rem;
+}
+
+#join input {
+    padding: 0.4rem 0.6rem;
+    font-size: 1rem;
+    border: 1px solid #444;
+    background: #222;
+    color: #eee;
+    border-radius: 4px;
+    width: 12rem;
+}
+
+#join button,
+#dpad button {
+    padding: 0.4rem 0.8rem;
+    font-size: 1rem;
+    border: 1px solid #444;
+    background: #333;
+    color: #eee;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+#join button:hover {
+    background: #444;
+}
+
+canvas {
+    background: #000;
+    border: 1px solid #333;
+    image-rendering: pixelated;
+    max-width: 100%;
+    height: auto;
+    touch-action: none;
+}
+
+#dpad {
+    display: grid;
+    grid-template-columns: repeat(3, 60px);
+    grid-template-rows: repeat(3, 60px);
+    gap: 0.4rem;
+    margin: 1rem;
+    user-select: none;
+}
+
+#dpad button {
+    font-size: 1.4rem;
+    padding: 0;
+    touch-action: manipulation;
+}
+
+#dpad button[data-dir="up"]    { grid-column: 2; grid-row: 1; }
+#dpad button[data-dir="left"]  { grid-column: 1; grid-row: 2; }
+#dpad button[data-dir="down"]  { grid-column: 2; grid-row: 3; }
+#dpad button[data-dir="right"] { grid-column: 3; grid-row: 2; }
+
+@media (hover: none) {
+    #dpad:not([hidden]) {
+        display: grid;
+    }
 }

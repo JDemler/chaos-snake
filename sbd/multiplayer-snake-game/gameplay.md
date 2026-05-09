@@ -4,8 +4,40 @@ title: Gameplay
 realizes: ./intent.md
 status:
   implementation:
-    status: not-implemented
+    status: implemented
+    files:
+      - internal/game/game.go
+  evidence:
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestSnakeMovesForwardOneTilePerTick
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestSnakeWrapsAroundEdges
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestPelletGrowsSnakeAndRespawns
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestSelfCollisionRespawns
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestFollowingOwnTailDoesNotKill
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestHeadOnHeadKillsBoth
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestRunningIntoOtherBodyKillsMover
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestReverseDirectionIsIgnoredForLongerSnake
 ---
+
+> Note: with only one field provisioned today, the "different field, chosen at
+> random" branch of the edge-teleport behavior is vacuously satisfied by the
+> single-field fallback. Multi-field teleport is tracked as not-implemented in
+> [fields.md](./fields.md).
 
 # Gameplay
 

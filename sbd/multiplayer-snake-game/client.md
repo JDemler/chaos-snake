@@ -4,15 +4,25 @@ title: Client
 realizes: ./intent.md
 status:
   implementation:
-    status: not-implemented
+    status: implemented
+    files:
+      - web/index.html
+      - web/app.js
+      - web/style.css
+      - cmd/server/main.go
+      - internal/transport/hub.go
+  evidence:
+    - kind: api-test
+      path: internal/transport/hub_test.go
+      name: TestJoinAndInputFlow
 ---
 
 # Client
 
 ## Behavior: Player Lands on the Site and Sees a Join Flow
 
-When a player visits the site, they see a control to enter a display name, an
-option to authenticate with GitHub, and a control to join the game.
+When a player visits the site, they see a control to enter a display name and
+a control to join the game.
 
 ## Behavior: Joining Places the Player Into a Live Field
 
@@ -29,3 +39,12 @@ client renders for touch devices. All three input methods are equivalent.
 
 The client is delivered as static HTML, JavaScript, and CSS. No client-side
 framework or build pipeline is required to run it.
+
+# Not Implemented
+
+## Behavior: Site Shows a GitHub Sign-In Option
+
+In addition to the basic name + join controls, the site shows a button to
+authenticate with GitHub. Tapping it initiates the Supabase-managed OAuth
+flow described in [auth.md](./auth.md). Until this is built, players can
+only play anonymously by entering a name.

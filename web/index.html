@@ -2,12 +2,29 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
     <title>Chaos Snake</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>Chaos Snake</h1>
-    <p>Coming soon.</p>
+    <header>
+        <h1>Chaos Snake</h1>
+        <span id="status">connecting…</span>
+        <span id="length"></span>
+    </header>
+    <div id="join">
+        <form id="joinForm">
+            <input id="name" maxlength="20" placeholder="your name" autocomplete="off" autofocus>
+            <button type="submit">Join</button>
+        </form>
+    </div>
+    <canvas id="canvas" width="600" height="600"></canvas>
+    <div id="dpad" hidden>
+        <button data-dir="up" aria-label="up">↑</button>
+        <button data-dir="left" aria-label="left">←</button>
+        <button data-dir="down" aria-label="down">↓</button>
+        <button data-dir="right" aria-label="right">→</button>
+    </div>
     <script src="app.js"></script>
 </body>
 </html>
