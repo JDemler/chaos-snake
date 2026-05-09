@@ -13,6 +13,17 @@ status:
 
 A player controls a single snake on whichever field they currently occupy.
 
+## Behavior: Food Pellets Spawn on Each Field and Grow the Eater
+
+Every active field has one food pellet at a random unoccupied tile. When a
+snake's head enters the pellet's tile, the snake grows by one tile and a new
+pellet spawns on a random unoccupied tile of the same field.
+
+## Technical Constraint: Server Ticks at 10 Hz
+
+The authoritative game loop advances state at ten ticks per second
+(every 100 milliseconds). One tick equals one tile of snake movement.
+
 ## Behavior: Field Edges Teleport, They Do Not Kill
 
 When a snake moves past the edge of its current field, it does not die. It
