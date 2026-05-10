@@ -78,7 +78,7 @@
         state.you = msg.you || '';
         state.fields.clear();
         for (const f of msg.fields) {
-            state.fields.set(f.id, { id: f.id, pellet: f.pellet });
+            state.fields.set(f.id, { id: f.id, pellets: (f.pellets || []).map(p => [p[0], p[1]]) });
         }
         state.snakes.clear();
         for (const s of msg.snakes) state.snakes.set(s.id, cloneSnake(s));
@@ -98,7 +98,7 @@
     function applyDelta(msg) {
         if (msg.field_joins) {
             for (const f of msg.field_joins) {
-                state.fields.set(f.id, { id: f.id, pellet: f.pellet });
+                state.fields.set(f.id, { id: f.id, pellets: (f.pellets || []).map(p => [p[0], p[1]]) });
             }
         }
         if (msg.field_leaves) {
@@ -125,7 +125,7 @@
         if (msg.pellets) {
             for (const p of msg.pellets) {
                 const f = state.fields.get(p.f);
-                if (f) f.pellet = p.p;
+                if (f) f.pellets = (p.ps || []).map(q => [q[0], q[1]]);
             }
         }
         rebuildThumbs();
@@ -242,17 +242,19 @@
             }
         }
 
-        // pellet
+        // pellets
         const f = state.fields.get(fieldID);
-        if (f && f.pellet && f.pellet[0] >= 0) {
+        if (f && f.pellets) {
             ctx.fillStyle = '#e22';
             const inset = Math.max(1, Math.floor(tile * 0.15));
-            ctx.fillRect(
-                f.pellet[0] * tile + inset,
-                f.pellet[1] * tile + inset,
-                tile - inset * 2,
-                tile - inset * 2,
-            );
+            for (const p of f.pellets) {
+                ctx.fillRect(
+                    p[0] * tile + inset,
+                    p[1] * tile + inset,
+                    tile - inset * 2,
+                    tile - inset * 2,
+                );
+            }
         }
 
         // snakes

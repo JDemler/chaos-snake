@@ -3,8 +3,8 @@ package transport
 import "chaos-snake/internal/game"
 
 type wireField struct {
-	ID     game.FieldID  `json:"id"`
-	Pellet game.Position `json:"pellet"`
+	ID      game.FieldID    `json:"id"`
+	Pellets []game.Position `json:"pellets"`
 }
 
 type wireFieldSize struct {
@@ -39,8 +39,8 @@ type wireMove struct {
 }
 
 type wirePellet struct {
-	Field game.FieldID  `json:"f"`
-	Pos   game.Position `json:"p"`
+	Field   game.FieldID    `json:"f"`
+	Pellets []game.Position `json:"ps"`
 }
 
 type wireDelta struct {
@@ -71,7 +71,9 @@ func toWireSnake(s *game.Snake) wireSnake {
 }
 
 func toWireField(f *game.Field) wireField {
-	return wireField{ID: f.ID, Pellet: f.Pellet}
+	pellets := make([]game.Position, len(f.Pellets))
+	copy(pellets, f.Pellets)
+	return wireField{ID: f.ID, Pellets: pellets}
 }
 
 func makeSnapshot(s game.Snapshot, you string) wireSnapshot {
@@ -114,7 +116,9 @@ func makeDelta(ev game.TickEvent) wireDelta {
 	}
 	pellets := make([]wirePellet, 0, len(ev.Pellets))
 	for _, p := range ev.Pellets {
-		pellets = append(pellets, wirePellet{Field: p.Field, Pos: p.Pos})
+		ps := make([]game.Position, len(p.Pellets))
+		copy(ps, p.Pellets)
+		pellets = append(pellets, wirePellet{Field: p.Field, Pellets: ps})
 	}
 	return wireDelta{
 		Type:        "delta",

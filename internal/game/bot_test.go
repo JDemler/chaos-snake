@@ -75,7 +75,7 @@ func TestRemoveAllBotsKeepsHumans(t *testing.T) {
 func TestBotMovesTowardPellet(t *testing.T) {
 	g := NewGame()
 	fid := firstFieldID(g)
-	g.fields[fid].Pellet = Position{15, 10}
+	setPellet(g, fid, Position{15, 10})
 	b := g.AddBot()
 	// Place bot to the left of the pellet, currently moving up — best move is right.
 	setSnake(g, b.ID, []Tile{{fid, Position{10, 10}}}, DirUp)
@@ -89,11 +89,30 @@ func TestBotMovesTowardPellet(t *testing.T) {
 	}
 }
 
+func TestBotTargetsNearestOfMultiplePellets(t *testing.T) {
+	g := NewGame()
+	fid := firstFieldID(g)
+	// Far pellet at (0,10); near pellet at (15,10). The bot is at (10,10)
+	// moving up. The nearest pellet is up-right of the bot, but since
+	// (15,10) is closer (5 vs 10), the right step minimizes distance.
+	setPellets(g, fid, Position{0, 10}, Position{15, 10})
+	b := g.AddBot()
+	setSnake(g, b.ID, []Tile{{fid, Position{10, 10}}}, DirUp)
+	g.snakes[b.ID].IsBot = true
+
+	g.Step()
+
+	got := g.snakes[b.ID]
+	if got.Body[0] != (Tile{fid, Position{11, 10}}) {
+		t.Fatalf("bot should step right toward the nearer pellet (15,10), got %v", got.Body[0])
+	}
+}
+
 func TestBotEvadesAdjacentBody(t *testing.T) {
 	g := NewGame()
 	fid := firstFieldID(g)
 	// Pellet far left so the bot would prefer to go left without evasion.
-	g.fields[fid].Pellet = Position{0, 10}
+	setPellet(g, fid, Position{0, 10})
 
 	// Human snake forms a wall blocking left and up; pellet pull to (0,10)
 	// would prefer left or up. Force evasion to pick down or right.

@@ -25,6 +25,7 @@ func NewHandler(g *game.Game) http.Handler {
 	mux.HandleFunc("/admin/api/bots/remove", func(w http.ResponseWriter, r *http.Request) { handleRemove(w, r, g) })
 	mux.HandleFunc("/admin/api/bots/remove_all", func(w http.ResponseWriter, r *http.Request) { handleRemoveAll(w, r, g) })
 	mux.HandleFunc("/admin/api/target", func(w http.ResponseWriter, r *http.Request) { handleTarget(w, r, g) })
+	mux.HandleFunc("/admin/api/pellets", func(w http.ResponseWriter, r *http.Request) { handlePellets(w, r, g) })
 	return mux
 }
 
@@ -45,10 +46,11 @@ type stateSnake struct {
 }
 
 type stateResponse struct {
-	Humans int          `json:"humans"`
-	Bots   int          `json:"bots"`
-	Target int          `json:"target"` // -1 means unset
-	Snakes []stateSnake `json:"snakes"`
+	Humans          int          `json:"humans"`
+	Bots            int          `json:"bots"`
+	Target          int          `json:"target"` // -1 means unset
+	PelletsPerField int          `json:"pellets_per_field"`
+	Snakes          []stateSnake `json:"snakes"`
 }
 
 func handleState(w http.ResponseWriter, r *http.Request, g *game.Game) {
@@ -93,6 +95,22 @@ func handleRemoveAll(w http.ResponseWriter, r *http.Request, g *game.Game) {
 	writeState(w, g)
 }
 
+func handlePellets(w http.ResponseWriter, r *http.Request, g *game.Game) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Value *int `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Value == nil {
+		http.Error(w, "missing value", http.StatusBadRequest)
+		return
+	}
+	g.SetPelletsPerField(*body.Value)
+	writeState(w, g)
+}
+
 func handleTarget(w http.ResponseWriter, r *http.Request, g *game.Game) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -116,8 +134,9 @@ func handleTarget(w http.ResponseWriter, r *http.Request, g *game.Game) {
 func writeState(w http.ResponseWriter, g *game.Game) {
 	snap := g.Snapshot()
 	resp := stateResponse{
-		Target: g.TargetCount(),
-		Snakes: make([]stateSnake, 0, len(snap.Snakes)),
+		Target:          g.TargetCount(),
+		PelletsPerField: g.PelletsPerField(),
+		Snakes:          make([]stateSnake, 0, len(snap.Snakes)),
 	}
 	for _, s := range snap.Snakes {
 		if s.IsBot {

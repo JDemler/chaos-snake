@@ -20,10 +20,24 @@ func setSnake(g *Game, id string, body []Tile, dir Direction) {
 	s.PeakLength = len(body)
 }
 
+// setPellet pins a field to a single pellet at p so per-position assertions
+// in legacy single-pellet tests stay deterministic across reconciliation.
+func setPellet(g *Game, fid FieldID, p Position) {
+	g.pelletsPerField = 1
+	g.fields[fid].Pellets = []Position{p}
+}
+
+// setPellets pins a field to the given pellet list and configures the global
+// target to match so reconciliation does not add or remove anything.
+func setPellets(g *Game, fid FieldID, pellets ...Position) {
+	g.pelletsPerField = len(pellets)
+	g.fields[fid].Pellets = append([]Position(nil), pellets...)
+}
+
 func TestSnakeMovesForwardOneTilePerTick(t *testing.T) {
 	g := NewGame()
 	fid := firstFieldID(g)
-	g.fields[fid].Pellet = Position{0, 0}
+	setPellet(g, fid, Position{0, 0})
 	s := g.Join("a")
 	setSnake(g, s.ID, []Tile{{fid, Position{10, 10}}}, DirRight)
 
@@ -41,7 +55,7 @@ func TestSnakeMovesForwardOneTilePerTick(t *testing.T) {
 func TestSingleFieldEdgeWraps(t *testing.T) {
 	g := NewGame()
 	fid := firstFieldID(g)
-	g.fields[fid].Pellet = Position{0, 29}
+	setPellet(g, fid, Position{0, 29})
 	s := g.Join("a")
 	setSnake(g, s.ID, []Tile{{fid, Position{29, 10}}}, DirRight)
 
@@ -56,9 +70,9 @@ func TestSingleFieldEdgeWraps(t *testing.T) {
 func TestMultiFieldTeleportPreservesPerpendicularCoord(t *testing.T) {
 	g := NewGame()
 	f1 := firstFieldID(g)
-	g.fields[f1].Pellet = Position{0, 0}
+	setPellet(g, f1, Position{0, 0})
 	f2 := g.spawnFieldLocked()
-	g.fields[f2.ID].Pellet = Position{0, 0}
+	setPellet(g, f2.ID, Position{0, 0})
 
 	s := g.Join("a")
 	// Force the snake onto f1 right edge, going right.
@@ -78,7 +92,7 @@ func TestMultiFieldTeleportPreservesPerpendicularCoord(t *testing.T) {
 func TestPelletGrowsSnakeAndRespawns(t *testing.T) {
 	g := NewGame()
 	fid := firstFieldID(g)
-	g.fields[fid].Pellet = Position{11, 10}
+	setPellet(g, fid, Position{11, 10})
 	s := g.Join("a")
 	setSnake(g, s.ID, []Tile{{fid, Position{10, 10}}}, DirRight)
 
@@ -88,18 +102,18 @@ func TestPelletGrowsSnakeAndRespawns(t *testing.T) {
 	if len(got.Body) != 2 {
 		t.Fatalf("expected length 2 after eating, got %d", len(got.Body))
 	}
-	if g.fields[fid].Pellet == (Position{11, 10}) {
-		t.Fatalf("pellet should respawn away from eaten tile")
+	if pellets := g.fields[fid].Pellets; len(pellets) != 1 || pellets[0] == (Position{11, 10}) {
+		t.Fatalf("pellet should respawn (single, away from eaten tile); got %v", pellets)
 	}
-	if len(ev.Pellets) != 1 || ev.Pellets[0].Field != fid {
-		t.Fatalf("expected one pellet change for %v, got %v", fid, ev.Pellets)
+	if len(ev.Pellets) != 1 || ev.Pellets[0].Field != fid || len(ev.Pellets[0].Pellets) != 1 {
+		t.Fatalf("expected one pellet change with one pellet for %v, got %v", fid, ev.Pellets)
 	}
 }
 
 func TestSelfCollisionRespawns(t *testing.T) {
 	g := NewGame()
 	fid := firstFieldID(g)
-	g.fields[fid].Pellet = Position{0, 0}
+	setPellet(g, fid, Position{0, 0})
 	s := g.Join("a")
 	body := []Tile{
 		{fid, Position{5, 5}}, {fid, Position{5, 4}}, {fid, Position{5, 3}},
@@ -129,7 +143,7 @@ func TestSelfCollisionRespawns(t *testing.T) {
 func TestFollowingOwnTailDoesNotKill(t *testing.T) {
 	g := NewGame()
 	fid := firstFieldID(g)
-	g.fields[fid].Pellet = Position{0, 0}
+	setPellet(g, fid, Position{0, 0})
 	s := g.Join("a")
 	body := []Tile{
 		{fid, Position{5, 5}}, {fid, Position{6, 5}},
@@ -149,7 +163,7 @@ func TestFollowingOwnTailDoesNotKill(t *testing.T) {
 func TestHeadOnHeadKillsBoth(t *testing.T) {
 	g := NewGame()
 	fid := firstFieldID(g)
-	g.fields[fid].Pellet = Position{0, 0}
+	setPellet(g, fid, Position{0, 0})
 
 	a := g.Join("a")
 	setSnake(g, a.ID, []Tile{{fid, Position{5, 5}}, {fid, Position{4, 5}}}, DirRight)
@@ -169,7 +183,7 @@ func TestHeadOnHeadKillsBoth(t *testing.T) {
 func TestRunningIntoOtherBodyKillsMover(t *testing.T) {
 	g := NewGame()
 	fid := firstFieldID(g)
-	g.fields[fid].Pellet = Position{0, 0}
+	setPellet(g, fid, Position{0, 0})
 
 	a := g.Join("a")
 	setSnake(g, a.ID, []Tile{
@@ -191,7 +205,7 @@ func TestRunningIntoOtherBodyKillsMover(t *testing.T) {
 func TestReverseDirectionIsIgnoredForLongerSnake(t *testing.T) {
 	g := NewGame()
 	fid := firstFieldID(g)
-	g.fields[fid].Pellet = Position{0, 0}
+	setPellet(g, fid, Position{0, 0})
 	s := g.Join("a")
 	setSnake(g, s.ID, []Tile{{fid, Position{5, 5}}, {fid, Position{4, 5}}}, DirRight)
 
@@ -239,9 +253,9 @@ func TestFieldSpawnsScaleAtEleventhJoin(t *testing.T) {
 func TestExcessEmptyFieldDestroyed(t *testing.T) {
 	g := NewGame()
 	f1 := firstFieldID(g)
-	g.fields[f1].Pellet = Position{0, 0}
+	setPellet(g, f1, Position{0, 0})
 	f2 := g.spawnFieldLocked()
-	g.fields[f2.ID].Pellet = Position{0, 0}
+	setPellet(g, f2.ID, Position{0, 0})
 
 	// 1 snake -> target = 1, current = 2, excess = 1.
 	s := g.Join("a")
@@ -260,7 +274,7 @@ func TestExcessEmptyFieldDestroyed(t *testing.T) {
 func TestEmptyFieldKeptWhenAtTarget(t *testing.T) {
 	g := NewGame()
 	fid1 := firstFieldID(g)
-	g.fields[fid1].Pellet = Position{0, 0}
+	setPellet(g, fid1, Position{0, 0})
 
 	// 6 joins -> auto-scales to 2 fields (target=2)
 	snakes := make([]*Snake, 0, 6)
@@ -306,9 +320,9 @@ func TestExcessEmptyFieldsDestroyedWithNoPlayers(t *testing.T) {
 func TestSnakeStraddlesTwoFieldsAfterCrossing(t *testing.T) {
 	g := NewGame()
 	f1 := firstFieldID(g)
-	g.fields[f1].Pellet = Position{0, 0}
+	setPellet(g, f1, Position{0, 0})
 	f2 := g.spawnFieldLocked()
-	g.fields[f2.ID].Pellet = Position{0, 0}
+	setPellet(g, f2.ID, Position{0, 0})
 
 	s := g.Join("a")
 	// Length-3 snake near f1's right edge moving right.
@@ -327,6 +341,113 @@ func TestSnakeStraddlesTwoFieldsAfterCrossing(t *testing.T) {
 	for i := 1; i < len(got.Body); i++ {
 		if got.Body[i].Field != f1 {
 			t.Fatalf("body cell %d should still be on f1, got %v", i, got.Body[i].Field)
+		}
+	}
+}
+
+func TestNewGameSpawnsDefaultPelletsPerField(t *testing.T) {
+	g := NewGame()
+	if g.PelletsPerField() != DefaultPelletsPerField {
+		t.Fatalf("expected default pellets/field = %d, got %d",
+			DefaultPelletsPerField, g.PelletsPerField())
+	}
+	fid := firstFieldID(g)
+	if got := len(g.fields[fid].Pellets); got != DefaultPelletsPerField {
+		t.Fatalf("expected %d pellets on first field, got %d",
+			DefaultPelletsPerField, got)
+	}
+}
+
+func TestEatingOnePelletKeepsFieldAtTarget(t *testing.T) {
+	g := NewGame()
+	fid := firstFieldID(g)
+	// Pin three pellets, one of which the snake will eat.
+	setPellets(g, fid,
+		Position{11, 10}, // about to be eaten
+		Position{0, 0},
+		Position{29, 29},
+	)
+	s := g.Join("a")
+	setSnake(g, s.ID, []Tile{{fid, Position{10, 10}}}, DirRight)
+
+	g.Step()
+
+	if got := len(g.fields[fid].Pellets); got != 3 {
+		t.Fatalf("field should still carry 3 pellets after one is eaten, got %d", got)
+	}
+	for _, p := range g.fields[fid].Pellets {
+		if p == (Position{11, 10}) {
+			t.Fatalf("eaten pellet at (11,10) should not still be present")
+		}
+	}
+}
+
+func TestSetPelletsPerFieldReconcilesUp(t *testing.T) {
+	g := NewGame()
+	fid := firstFieldID(g)
+	setPellet(g, fid, Position{0, 0})
+	if got := len(g.fields[fid].Pellets); got != 1 {
+		t.Fatalf("setup: expected 1 pellet, got %d", got)
+	}
+
+	g.SetPelletsPerField(5)
+	g.Step()
+
+	if got := len(g.fields[fid].Pellets); got != 5 {
+		t.Fatalf("after raising target to 5, expected 5 pellets, got %d", got)
+	}
+}
+
+func TestSetPelletsPerFieldReconcilesDown(t *testing.T) {
+	g := NewGame()
+	fid := firstFieldID(g)
+	setPellets(g, fid,
+		Position{0, 0}, Position{1, 1}, Position{2, 2},
+		Position{3, 3}, Position{4, 4},
+	)
+
+	g.SetPelletsPerField(2)
+	g.Step()
+
+	if got := len(g.fields[fid].Pellets); got != 2 {
+		t.Fatalf("after lowering target to 2, expected 2 pellets, got %d", got)
+	}
+}
+
+func TestSetPelletsPerFieldReconcilesAcrossFields(t *testing.T) {
+	g := NewGame()
+	g.spawnFieldLocked()
+	g.spawnFieldLocked()
+	g.SetPelletsPerField(4)
+	g.Step()
+
+	for fid, f := range g.fields {
+		if len(f.Pellets) != 4 {
+			t.Fatalf("field %v should carry 4 pellets, got %d", fid, len(f.Pellets))
+		}
+	}
+}
+
+func TestNewFieldIsFilledToCurrentTarget(t *testing.T) {
+	g := NewGame()
+	g.SetPelletsPerField(2)
+	g.Step() // reconcile existing field down to 2
+	f := g.spawnFieldLocked()
+	if got := len(f.Pellets); got != 2 {
+		t.Fatalf("new field should be born with 2 pellets, got %d", got)
+	}
+}
+
+func TestSetPelletsPerFieldClampsNegativeToZero(t *testing.T) {
+	g := NewGame()
+	g.SetPelletsPerField(-3)
+	if got := g.PelletsPerField(); got != 0 {
+		t.Fatalf("negative target should clamp to 0, got %d", got)
+	}
+	g.Step()
+	for _, f := range g.fields {
+		if len(f.Pellets) != 0 {
+			t.Fatalf("field should have 0 pellets after target=0 reconcile, got %d", len(f.Pellets))
 		}
 	}
 }

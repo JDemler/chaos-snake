@@ -41,6 +41,18 @@ status:
     - kind: unit-test
       path: internal/game/bot_test.go
       name: TestClearTargetCountStopsMaintenance
+    - kind: unit-test
+      path: internal/game/bot_test.go
+      name: TestBotTargetsNearestOfMultiplePellets
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestSetPelletsPerFieldReconcilesUp
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestSetPelletsPerFieldReconcilesDown
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestSetPelletsPerFieldClampsNegativeToZero
 ---
 
 
@@ -118,8 +130,10 @@ rule that already applies to long-enough snakes.
    players use, so a candidate move that would cross a field edge is
    evaluated on the destination field.
 2. **Eating.** Among the remaining directions, pick the one whose next
-   tile has the smallest Manhattan distance to the pellet of whichever
-   field the next tile lands on.
+   tile has the smallest Manhattan distance to the nearest pellet on
+   whichever field the next tile lands on. If that field carries no
+   pellets, every direction ties on this step and the bot falls back
+   to whichever surviving direction the evasion step considered first.
 
 If every direction is filtered out by evasion, the bot keeps its current
 direction and dies on the next step under the existing collision rules,
@@ -128,30 +142,20 @@ then respawns.
 Bots do not plan further than one tile ahead, do not coordinate with
 other bots, and do not predict other snakes' next moves.
 
-## Technical Constraint: Bots Run Inside the Game Server Tick
-
-Bot decisions are computed inside the Go server's tick loop and are
-applied at the same tick boundary as player input. Bots are not separate
-WebSocket clients and do not consume any external connection.
-
-# Not Implemented
-
 ## Behavior: Admin Can Set Pellets Per Field
 
 The admin interface exposes a control to set `pellets_per_field`, the
 global pellet count carried by every active field as defined in
 [gameplay.md](./gameplay.md). Setting the value reconciles every active
-field immediately on the next tick.
+field on the next tick.
 
-The default at server start is 3. The value applies globally — there is
-no per-field override.
+The default at server start is 3, and the value applies globally — there
+is no per-field override. Negative values submitted by the admin are
+clamped to 0, which means no field carries any pellet and snakes cannot
+grow until the admin raises the value again.
 
-## Behavior: Bots Target the Nearest Pellet on the Destination Field
+## Technical Constraint: Bots Run Inside the Game Server Tick
 
-When a field carries multiple pellets, the bot's eating step picks the
-direction whose next tile has the smallest Manhattan distance to the
-nearest pellet on the field that next tile lands on. The evasion step is
-unchanged.
-
-This supersedes the eating rule in "Bots Use One-Step Lookahead AI",
-which targets a single pellet per field.
+Bot decisions are computed inside the Go server's tick loop and are
+applied at the same tick boundary as player input. Bots are not separate
+WebSocket clients and do not consume any external connection.

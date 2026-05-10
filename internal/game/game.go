@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	FieldW           = 30
-	FieldH           = 30
-	TickHz           = 10
-	PlayersPerField  = 5
+	FieldW                 = 30
+	FieldH                 = 30
+	TickHz                 = 10
+	PlayersPerField        = 5
+	DefaultPelletsPerField = 3
 )
 
 type Direction uint8
@@ -123,12 +124,14 @@ func (s *Snake) clone() *Snake {
 }
 
 type Field struct {
-	ID     FieldID
-	Pellet Position
+	ID      FieldID
+	Pellets []Position
 }
 
 func (f *Field) clone() *Field {
-	return &Field{ID: f.ID, Pellet: f.Pellet}
+	pellets := make([]Position, len(f.Pellets))
+	copy(pellets, f.Pellets)
+	return &Field{ID: f.ID, Pellets: pellets}
 }
 
 type SnakeMove struct {
@@ -139,9 +142,11 @@ type SnakeMove struct {
 	Length int
 }
 
+// PelletChange carries the full pellet list for a field whose pellets
+// changed on a tick (eats, reconciliation, or admin retarget).
 type PelletChange struct {
-	Field FieldID
-	Pos   Position
+	Field   FieldID
+	Pellets []Position
 }
 
 type TickEvent struct {
@@ -168,6 +173,7 @@ type Game struct {
 	nextFieldNum       int
 	nextBotNum         int
 	targetCount        int // <0 means no target
+	pelletsPerField    int
 	fields             map[FieldID]*Field
 	snakes             map[string]*Snake
 	pendingJoins       []*Snake
@@ -179,9 +185,10 @@ type Game struct {
 
 func NewGame() *Game {
 	g := &Game{
-		fields:      map[FieldID]*Field{},
-		snakes:      map[string]*Snake{},
-		targetCount: -1,
+		fields:          map[FieldID]*Field{},
+		snakes:          map[string]*Snake{},
+		targetCount:     -1,
+		pelletsPerField: DefaultPelletsPerField,
 		rng: rand.New(rand.NewPCG(
 			uint64(time.Now().UnixNano()),
 			0x9e3779b97f4a7c15,
@@ -194,13 +201,24 @@ func NewGame() *Game {
 func (g *Game) spawnFieldLocked() *Field {
 	g.nextFieldNum++
 	f := &Field{
-		ID:     FieldID(fmt.Sprintf("f%d", g.nextFieldNum)),
-		Pellet: Position{-1, -1},
+		ID: FieldID(fmt.Sprintf("f%d", g.nextFieldNum)),
 	}
 	g.fields[f.ID] = f
-	f.Pellet = g.randomFreeTileInFieldLocked(f.ID)
+	g.fillPelletsLocked(f)
 	g.pendingFieldJoins = append(g.pendingFieldJoins, f.clone())
 	return f
+}
+
+// fillPelletsLocked tops up f's pellets to the current target. It does not
+// remove existing pellets even if it exceeds the target.
+func (g *Game) fillPelletsLocked(f *Field) {
+	for len(f.Pellets) < g.pelletsPerField {
+		p, ok := g.randomFreeTileInFieldLocked(f.ID)
+		if !ok {
+			return
+		}
+		f.Pellets = append(f.Pellets, p)
+	}
 }
 
 func (g *Game) Join(name string) *Snake {
@@ -272,6 +290,27 @@ func (g *Game) TargetCount() int {
 	return g.targetCount
 }
 
+// SetPelletsPerField changes the global pellet count carried by every active
+// field. The change is reconciled on the next tick: fields with too few
+// pellets gain pellets on random unoccupied tiles, and fields with too many
+// lose randomly chosen pellets until each field carries n. Negative values
+// are clamped to 0.
+func (g *Game) SetPelletsPerField(n int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if n < 0 {
+		n = 0
+	}
+	g.pelletsPerField = n
+}
+
+// PelletsPerField returns the current global pellet target.
+func (g *Game) PelletsPerField() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.pelletsPerField
+}
+
 func (g *Game) Leave(id string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -287,7 +326,7 @@ func (g *Game) spawnSnakeLocked(name string, isBot bool) *Snake {
 		g.spawnFieldLocked()
 	}
 	fid := g.randomFieldIDLocked()
-	spawn := g.randomFreeTileInFieldLocked(fid)
+	spawn, _ := g.randomFreeTileInFieldLocked(fid)
 	s := &Snake{
 		ID:         randomID(),
 		Name:       name,
@@ -387,8 +426,14 @@ func (g *Game) Step() TickEvent {
 	eaten := map[*Snake]bool{}
 	for _, p := range plans {
 		f := g.fields[p.newHead.Field]
-		if f != nil && p.newHead.Pos == f.Pellet {
-			eaten[p.s] = true
+		if f == nil {
+			continue
+		}
+		for _, pellet := range f.Pellets {
+			if p.newHead.Pos == pellet {
+				eaten[p.s] = true
+				break
+			}
 		}
 	}
 
@@ -414,7 +459,9 @@ func (g *Game) Step() TickEvent {
 		}
 	}
 
-	pelletEaten := map[FieldID]bool{}
+	// Track which fields had a pellet consumed; we'll remove eaten pellets
+	// and reconcile to target afterwards.
+	pelletDirty := map[FieldID]bool{}
 	for _, p := range plans {
 		if deaths[p.s] {
 			continue
@@ -423,7 +470,16 @@ func (g *Game) Step() TickEvent {
 		newBody = append(newBody, p.newHead)
 		if eaten[p.s] {
 			newBody = append(newBody, p.s.Body...)
-			pelletEaten[p.newHead.Field] = true
+			f := g.fields[p.newHead.Field]
+			if f != nil {
+				for i, pellet := range f.Pellets {
+					if pellet == p.newHead.Pos {
+						f.Pellets = append(f.Pellets[:i], f.Pellets[i+1:]...)
+						break
+					}
+				}
+				pelletDirty[p.newHead.Field] = true
+			}
 		} else {
 			newBody = append(newBody, p.s.Body[:len(p.s.Body)-1]...)
 		}
@@ -439,18 +495,9 @@ func (g *Game) Step() TickEvent {
 		})
 	}
 
-	for fid := range pelletEaten {
-		f := g.fields[fid]
-		if f == nil {
-			continue
-		}
-		f.Pellet = g.randomFreeTileInFieldLocked(fid)
-		ev.Pellets = append(ev.Pellets, PelletChange{Field: fid, Pos: f.Pellet})
-	}
-
 	for s := range deaths {
 		fid := g.randomFieldIDLocked()
-		spawn := g.randomFreeTileInFieldLocked(fid)
+		spawn, _ := g.randomFreeTileInFieldLocked(fid)
 		s.Body = []Tile{{Field: fid, Pos: spawn}}
 		s.Dir = randomDir(g.rng)
 		s.NextDir = s.Dir
@@ -462,8 +509,36 @@ func (g *Game) Step() TickEvent {
 		})
 	}
 
+	g.reconcilePelletsLocked(&ev, pelletDirty)
 	g.destroyEmptyFieldsLocked(&ev)
 	return ev
+}
+
+// reconcilePelletsLocked brings every active field to the configured pellet
+// count. Fields with too few pellets gain new pellets on random unoccupied
+// tiles; fields with too many lose randomly chosen pellets. Any field that
+// changes (including those flagged in dirty for an eat-and-refill on the
+// same tick) emits a PelletChange carrying its full new pellet list.
+func (g *Game) reconcilePelletsLocked(ev *TickEvent, dirty map[FieldID]bool) {
+	for fid, f := range g.fields {
+		before := len(f.Pellets)
+		for len(f.Pellets) > g.pelletsPerField {
+			i := g.rng.IntN(len(f.Pellets))
+			f.Pellets = append(f.Pellets[:i], f.Pellets[i+1:]...)
+		}
+		for len(f.Pellets) < g.pelletsPerField {
+			p, ok := g.randomFreeTileInFieldLocked(fid)
+			if !ok {
+				break
+			}
+			f.Pellets = append(f.Pellets, p)
+		}
+		if dirty[fid] || len(f.Pellets) != before {
+			pellets := make([]Position, len(f.Pellets))
+			copy(pellets, f.Pellets)
+			ev.Pellets = append(ev.Pellets, PelletChange{Field: fid, Pellets: pellets})
+		}
+	}
 }
 
 // enforceTargetLocked maintains humans+bots == targetCount when a target is
@@ -492,8 +567,8 @@ func (g *Game) enforceTargetLocked() {
 
 // decideBotsLocked sets each bot's NextDir using one-step lookahead: discard
 // directions whose next tile is occupied by any snake's body, then pick the
-// surviving direction whose next tile minimizes Manhattan distance to its
-// landing field's pellet.
+// surviving direction whose next tile minimizes Manhattan distance to the
+// nearest pellet on its landing field.
 func (g *Game) decideBotsLocked() {
 	if len(g.snakes) == 0 {
 		return
@@ -529,7 +604,7 @@ func (g *Game) decideBotsLocked() {
 			if f == nil {
 				continue
 			}
-			dist := manhattan(nh.Pos, f.Pellet)
+			dist := nearestPelletDistance(nh.Pos, f.Pellets)
 			if !anySafe || dist < bestDist {
 				bestDir = d
 				bestDist = dist
@@ -540,6 +615,23 @@ func (g *Game) decideBotsLocked() {
 			s.NextDir = bestDir
 		}
 	}
+}
+
+// nearestPelletDistance returns the smallest Manhattan distance from p to any
+// pellet in pellets. If pellets is empty the field has no food and the bot
+// has no preference: we return a large constant so any move ties on it.
+func nearestPelletDistance(p Position, pellets []Position) int {
+	if len(pellets) == 0 {
+		return FieldW + FieldH
+	}
+	best := manhattan(p, pellets[0])
+	for _, q := range pellets[1:] {
+		d := manhattan(p, q)
+		if d < best {
+			best = d
+		}
+	}
+	return best
 }
 
 func manhattan(a, b Position) int {
@@ -671,10 +763,16 @@ func (g *Game) randomFieldIDLocked() FieldID {
 	return ids[g.rng.IntN(len(ids))]
 }
 
-func (g *Game) randomFreeTileInFieldLocked(fid FieldID) Position {
+// randomFreeTileInFieldLocked returns a tile not occupied by a snake or an
+// existing pellet on the given field. The bool reports whether a free tile
+// was found; when no tile is free the position is still a random tile, which
+// callers that must place something (e.g. snake respawn) can use.
+func (g *Game) randomFreeTileInFieldLocked(fid FieldID) (Position, bool) {
 	occupied := map[Position]bool{}
-	if f := g.fields[fid]; f != nil && f.Pellet.X >= 0 {
-		occupied[f.Pellet] = true
+	if f := g.fields[fid]; f != nil {
+		for _, p := range f.Pellets {
+			occupied[p] = true
+		}
 	}
 	for _, s := range g.snakes {
 		for _, t := range s.Body {
@@ -684,12 +782,12 @@ func (g *Game) randomFreeTileInFieldLocked(fid FieldID) Position {
 		}
 	}
 	if len(occupied) >= FieldW*FieldH {
-		return Position{g.rng.IntN(FieldW), g.rng.IntN(FieldH)}
+		return Position{g.rng.IntN(FieldW), g.rng.IntN(FieldH)}, false
 	}
 	for {
 		p := Position{g.rng.IntN(FieldW), g.rng.IntN(FieldH)}
 		if !occupied[p] {
-			return p
+			return p, true
 		}
 	}
 }

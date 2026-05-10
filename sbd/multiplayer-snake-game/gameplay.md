@@ -32,6 +32,24 @@ status:
     - kind: unit-test
       path: internal/game/game_test.go
       name: TestReverseDirectionIsIgnoredForLongerSnake
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestNewGameSpawnsDefaultPelletsPerField
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestEatingOnePelletKeepsFieldAtTarget
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestSetPelletsPerFieldReconcilesUp
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestSetPelletsPerFieldReconcilesDown
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestSetPelletsPerFieldReconcilesAcrossFields
+    - kind: unit-test
+      path: internal/game/game_test.go
+      name: TestNewFieldIsFilledToCurrentTarget
 ---
 
 
@@ -43,9 +61,18 @@ A player controls a single snake on whichever field they currently occupy.
 
 ## Behavior: Food Pellets Spawn on Each Field and Grow the Eater
 
-Every active field has one food pellet at a random unoccupied tile. When a
-snake's head enters the pellet's tile, the snake grows by one tile and a new
-pellet spawns on a random unoccupied tile of the same field.
+Every active field carries `pellets_per_field` pellets at distinct random
+unoccupied tiles. The default value of `pellets_per_field` is 3, and it is
+configurable globally via the admin interface as described in
+[bots.md](./bots.md). When a snake's head enters a pellet's tile, that
+pellet is consumed, the snake grows by one tile, and a replacement pellet
+spawns immediately on a random unoccupied tile of the same field, so the
+field always carries `pellets_per_field` pellets while it is active.
+
+When `pellets_per_field` changes, every active field is reconciled on the
+next tick: fields with too few pellets gain additional pellets on random
+unoccupied tiles, and fields with too many lose randomly chosen pellets
+until the count matches.
 
 ## Technical Constraint: Server Ticks at 10 Hz
 
@@ -80,23 +107,3 @@ If two snake heads enter the same tile in the same tick, both snakes die.
 
 When a snake dies, the player is automatically respawned at a random tile on a
 randomly chosen active field. Players are not removed from the game on death.
-
-# Not Implemented
-
-## Behavior: Each Field Carries Multiple Food Pellets
-
-Every active field carries `pellets_per_field` pellets at distinct random
-unoccupied tiles. The default value of `pellets_per_field` is 3. The value is
-global — every active field uses the same target — and is configured by an
-admin as described in [bots.md](./bots.md).
-
-This supersedes the single-pellet rule in "Food Pellets Spawn on Each Field
-and Grow the Eater": when a snake's head enters a pellet's tile, that pellet
-is consumed, the snake grows by one tile, and a replacement pellet spawns
-immediately on a random unoccupied tile of the same field, so the field
-always carries `pellets_per_field` pellets while it is active.
-
-When `pellets_per_field` changes, every active field is reconciled to the new
-target on the same tick: fields with too few pellets gain additional pellets
-on random unoccupied tiles, and fields with too many lose randomly chosen
-pellets until the count matches.

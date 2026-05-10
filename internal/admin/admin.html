@@ -26,6 +26,7 @@
             <span>Humans: <strong id="humans">0</strong></span>
             <span>Bots: <strong id="bots">0</strong></span>
             <span>Target: <strong id="target">none</strong></span>
+            <span>Pellets/field: <strong id="pellets">0</strong></span>
         </div>
         <p class="err" id="err"></p>
     </section>
@@ -42,6 +43,13 @@
         <input type="number" id="targetInput" min="0" value="0">
         <button id="setTarget">Set target</button>
         <button id="clearTarget">Clear target</button>
+    </section>
+
+    <section>
+        <h2>Pellets per field</h2>
+        <p>Global pellet count carried by every active field. Reconciles on the next tick.</p>
+        <input type="number" id="pelletsInput" min="0" value="3">
+        <button id="setPellets">Set pellets</button>
     </section>
 
     <section>
@@ -68,6 +76,7 @@
             document.getElementById('humans').textContent = state.humans;
             document.getElementById('bots').textContent = state.bots;
             document.getElementById('target').textContent = state.target < 0 ? 'none' : state.target;
+            document.getElementById('pellets').textContent = state.pellets_per_field;
             const ul = document.getElementById('snakes');
             ul.innerHTML = '';
             state.snakes.sort((a, b) => b.length - a.length);
@@ -103,6 +112,11 @@
             render(await call('/admin/api/target', { target: isNaN(n) ? null : n }));
         };
         document.getElementById('clearTarget').onclick = async () => render(await call('/admin/api/target', { target: null }));
+        document.getElementById('setPellets').onclick = async () => {
+            const n = parseInt(document.getElementById('pelletsInput').value, 10);
+            if (isNaN(n)) return;
+            render(await call('/admin/api/pellets', { value: n }));
+        };
 
         refresh();
         setInterval(refresh, 1000);
