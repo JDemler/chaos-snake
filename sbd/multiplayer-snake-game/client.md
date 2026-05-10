@@ -29,6 +29,13 @@ a control to join the game.
 After joining, the player is placed into one of the active fields and begins
 controlling a snake immediately.
 
+## Behavior: Header Shows Live Player and Field Counts
+
+The page header reports, in real time, how many players are currently
+connected to the game and how many fields are active. These counters update
+whenever a player joins or leaves and whenever a field is created or
+destroyed, so a viewer can always see the overall scale of the game.
+
 ## Behavior: Player Sees Their Current Field Large, Other Fields as Thumbnails
 
 While playing, the client renders the field that the player's snake head

@@ -202,11 +202,7 @@ func (g *Game) Join(name string) *Snake {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	target := (len(g.snakes) + 1 + PlayersPerField - 1) / PlayersPerField
-	if target < 1 {
-		target = 1
-	}
-	for len(g.fields) < target {
+	for len(g.fields) < targetFieldCount(len(g.snakes)+1) {
 		g.spawnFieldLocked()
 	}
 
@@ -286,10 +282,6 @@ func (g *Game) Step() TickEvent {
 	g.pendingLeaves = nil
 	g.pendingFieldJoins = nil
 	g.pendingFieldLeaves = nil
-
-	if len(g.snakes) == 0 {
-		return ev
-	}
 
 	type plan struct {
 		s       *Snake
@@ -394,10 +386,13 @@ func (g *Game) Step() TickEvent {
 	return ev
 }
 
-// destroyEmptyFieldsLocked removes any field with no snake body cells, except
-// the final remaining field, and appends destroyed IDs to the event.
+// destroyEmptyFieldsLocked destroys empty fields only when the active field
+// count exceeds the scaling target of one field per PlayersPerField players.
+// Empty fields still needed to satisfy the target are preserved so isolated
+// teleports or leaves do not cause the field to disappear.
 func (g *Game) destroyEmptyFieldsLocked(ev *TickEvent) {
-	if len(g.fields) <= 1 {
+	excess := len(g.fields) - targetFieldCount(len(g.snakes))
+	if excess <= 0 {
 		return
 	}
 	occupied := map[FieldID]bool{}
@@ -407,11 +402,23 @@ func (g *Game) destroyEmptyFieldsLocked(ev *TickEvent) {
 		}
 	}
 	for id := range g.fields {
-		if !occupied[id] && len(g.fields) > 1 {
+		if excess <= 0 {
+			break
+		}
+		if !occupied[id] {
 			delete(g.fields, id)
 			ev.FieldLeaves = append(ev.FieldLeaves, id)
+			excess--
 		}
 	}
+}
+
+func targetFieldCount(playerCount int) int {
+	target := (playerCount + PlayersPerField - 1) / PlayersPerField
+	if target < 1 {
+		target = 1
+	}
+	return target
 }
 
 func stepTile(t Tile, d Direction, g *Game) Tile {

@@ -236,33 +236,70 @@ func TestFieldSpawnsScaleAtEleventhJoin(t *testing.T) {
 	}
 }
 
-func TestEmptyFieldDestroyedWhenNotLast(t *testing.T) {
+func TestExcessEmptyFieldDestroyed(t *testing.T) {
 	g := NewGame()
 	f1 := firstFieldID(g)
 	g.fields[f1].Pellet = Position{0, 0}
 	f2 := g.spawnFieldLocked()
 	g.fields[f2.ID].Pellet = Position{0, 0}
 
-	// Snake fully on f2; tile that f1 has occupied: nobody.
+	// 1 snake -> target = 1, current = 2, excess = 1.
 	s := g.Join("a")
 	setSnake(g, s.ID, []Tile{{f2.ID, Position{15, 15}}}, DirRight)
 
 	g.Step()
 
 	if _, ok := g.fields[f1]; ok {
-		t.Fatalf("empty field %v should have been destroyed", f1)
+		t.Fatalf("excess empty field %v should have been destroyed", f1)
 	}
 	if _, ok := g.fields[f2.ID]; !ok {
-		t.Fatalf("field %v should still exist", f2.ID)
+		t.Fatalf("non-empty field %v should still exist", f2.ID)
+	}
+}
+
+func TestEmptyFieldKeptWhenAtTarget(t *testing.T) {
+	g := NewGame()
+	fid1 := firstFieldID(g)
+	g.fields[fid1].Pellet = Position{0, 0}
+
+	// 6 joins -> auto-scales to 2 fields (target=2)
+	snakes := make([]*Snake, 0, 6)
+	for i := 0; i < 6; i++ {
+		snakes = append(snakes, g.Join("p"))
+	}
+	if len(g.fields) != 2 {
+		t.Fatalf("setup: expected 2 fields after 6 joins, got %d", len(g.fields))
+	}
+
+	// Force all 6 onto fid1, leaving the other field empty.
+	for i, s := range snakes {
+		setSnake(g, s.ID, []Tile{{fid1, Position{i, 15}}}, DirRight)
+	}
+
+	g.Step()
+
+	if len(g.fields) != 2 {
+		t.Fatalf("empty field at-target should be kept; got %d fields", len(g.fields))
 	}
 }
 
 func TestLastFieldIsNotDestroyedWhenEmpty(t *testing.T) {
 	g := NewGame()
-	// No snakes, one field — should remain.
+	// No snakes, one field, target=1, excess=0 — must remain.
 	g.Step()
 	if len(g.fields) != 1 {
 		t.Fatalf("last field must be preserved; got %d fields", len(g.fields))
+	}
+}
+
+func TestExcessEmptyFieldsDestroyedWithNoPlayers(t *testing.T) {
+	g := NewGame() // f1
+	g.spawnFieldLocked()
+	g.spawnFieldLocked()
+	// 3 fields, 0 players, target=1, excess=2 — destroy 2 empties.
+	g.Step()
+	if len(g.fields) != 1 {
+		t.Fatalf("expected 1 field after destroying excess empties; got %d", len(g.fields))
 	}
 }
 

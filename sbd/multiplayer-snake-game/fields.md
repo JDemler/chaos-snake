@@ -43,11 +43,18 @@ The server provisions roughly one field per five concurrent players. As
 players join, additional fields are created so the player-to-field ratio
 stays near five players per field.
 
-## Behavior: Empty Fields Are Destroyed Unless They Are the Last One
+## Behavior: Empty Fields Are Destroyed Only When the Field Count Exceeds Capacity
 
-A field is destroyed when it has no players left, except for the final
-remaining field. At least one field is always preserved so that newly joining
-players and respawning players have somewhere to spawn.
+A field with no remaining snake body cells is destroyed only when the active
+field count is greater than the scaling target of one field per five
+players, i.e. when `field_count > ceil(player_count / 5)`. Empty fields that
+are still needed to satisfy that target are preserved, so an isolated player
+leaving or teleporting out of a field does not by itself cause the field to
+disappear and does not cause any other field to disappear in its place.
+
+At least one field is always preserved (the target is treated as at least 1)
+so that newly joining and respawning players always have somewhere to spawn,
+even when no one is connected.
 
 ## Behavior: Cross-Field Teleport Targets a Random Other Field
 

@@ -5,6 +5,7 @@
     const statusEl = document.getElementById('status');
     const lengthEl = document.getElementById('length');
     const fieldCountEl = document.getElementById('fieldcount');
+    const playerCountEl = document.getElementById('playercount');
     const joinDiv = document.getElementById('join');
     const joinForm = document.getElementById('joinForm');
     const nameInput = document.getElementById('name');
@@ -151,6 +152,7 @@
         fieldCountEl.textContent = state.fields.size > 0
             ? `fields: ${state.fields.size}`
             : '';
+        playerCountEl.textContent = `players: ${state.snakes.size}`;
     }
 
     // currentFieldID returns the field the player's head is on (when joined),
