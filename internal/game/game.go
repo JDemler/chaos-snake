@@ -104,6 +104,7 @@ type Snake struct {
 	Dir        Direction
 	NextDir    Direction
 	PeakLength int
+	IsBot      bool
 }
 
 func (s *Snake) clone() *Snake {
@@ -117,6 +118,7 @@ func (s *Snake) clone() *Snake {
 		Dir:        s.Dir,
 		NextDir:    s.NextDir,
 		PeakLength: s.PeakLength,
+		IsBot:      s.IsBot,
 	}
 }
 
@@ -164,6 +166,8 @@ type Game struct {
 	mu                 sync.Mutex
 	tick               uint64
 	nextFieldNum       int
+	nextBotNum         int
+	targetCount        int // <0 means no target
 	fields             map[FieldID]*Field
 	snakes             map[string]*Snake
 	pendingJoins       []*Snake
@@ -175,8 +179,9 @@ type Game struct {
 
 func NewGame() *Game {
 	g := &Game{
-		fields: map[FieldID]*Field{},
-		snakes: map[string]*Snake{},
+		fields:      map[FieldID]*Field{},
+		snakes:      map[string]*Snake{},
+		targetCount: -1,
 		rng: rand.New(rand.NewPCG(
 			uint64(time.Now().UnixNano()),
 			0x9e3779b97f4a7c15,
@@ -201,25 +206,70 @@ func (g *Game) spawnFieldLocked() *Field {
 func (g *Game) Join(name string) *Snake {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-
-	for len(g.fields) < targetFieldCount(len(g.snakes)+1) {
-		g.spawnFieldLocked()
-	}
-
-	fid := g.randomFieldIDLocked()
-	spawn := g.randomFreeTileInFieldLocked(fid)
-	s := &Snake{
-		ID:    randomID(),
-		Name:  sanitizeName(name),
-		Color: pickColor(g.rng),
-		Body:  []Tile{{Field: fid, Pos: spawn}},
-	}
-	s.Dir = randomDir(g.rng)
-	s.NextDir = s.Dir
-	s.PeakLength = 1
-	g.snakes[s.ID] = s
-	g.pendingJoins = append(g.pendingJoins, s.clone())
+	s := g.spawnSnakeLocked(sanitizeName(name), false)
 	return s.clone()
+}
+
+// AddBot spawns a new bot-controlled snake. Returns a clone of the new snake.
+func (g *Game) AddBot() *Snake {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	s := g.spawnBotLocked()
+	return s.clone()
+}
+
+// RemoveBot removes a single bot by ID. No-op if the ID is not a bot.
+func (g *Game) RemoveBot(id string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	s, ok := g.snakes[id]
+	if !ok || !s.IsBot {
+		return false
+	}
+	delete(g.snakes, id)
+	g.pendingLeaves = append(g.pendingLeaves, id)
+	return true
+}
+
+// RemoveAllBots removes every bot from the game. Humans are unaffected.
+// Returns the number of bots removed.
+func (g *Game) RemoveAllBots() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	n := 0
+	for id, s := range g.snakes {
+		if s.IsBot {
+			delete(g.snakes, id)
+			g.pendingLeaves = append(g.pendingLeaves, id)
+			n++
+		}
+	}
+	return n
+}
+
+// SetTargetCount enables auto-maintenance of (humans + bots) at n. The game
+// will spawn bots when below n and remove bots (never humans) when above n.
+// A negative n disables target maintenance.
+func (g *Game) SetTargetCount(n int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if n < 0 {
+		g.targetCount = -1
+		return
+	}
+	g.targetCount = n
+}
+
+// ClearTargetCount disables target-count auto-maintenance.
+func (g *Game) ClearTargetCount() {
+	g.SetTargetCount(-1)
+}
+
+// TargetCount returns the configured target, or -1 if no target is set.
+func (g *Game) TargetCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.targetCount
 }
 
 func (g *Game) Leave(id string) {
@@ -230,6 +280,33 @@ func (g *Game) Leave(id string) {
 	}
 	delete(g.snakes, id)
 	g.pendingLeaves = append(g.pendingLeaves, id)
+}
+
+func (g *Game) spawnSnakeLocked(name string, isBot bool) *Snake {
+	for len(g.fields) < targetFieldCount(len(g.snakes)+1) {
+		g.spawnFieldLocked()
+	}
+	fid := g.randomFieldIDLocked()
+	spawn := g.randomFreeTileInFieldLocked(fid)
+	s := &Snake{
+		ID:         randomID(),
+		Name:       name,
+		Color:      pickColor(g.rng),
+		Body:       []Tile{{Field: fid, Pos: spawn}},
+		PeakLength: 1,
+		IsBot:      isBot,
+	}
+	s.Dir = randomDir(g.rng)
+	s.NextDir = s.Dir
+	g.snakes[s.ID] = s
+	g.pendingJoins = append(g.pendingJoins, s.clone())
+	return s
+}
+
+func (g *Game) spawnBotLocked() *Snake {
+	g.nextBotNum++
+	name := fmt.Sprintf("bot-%d", g.nextBotNum)
+	return g.spawnSnakeLocked(name, true)
 }
 
 func (g *Game) SetDirection(id string, dir Direction) {
@@ -270,6 +347,9 @@ func (g *Game) Step() TickEvent {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.tick++
+
+	g.enforceTargetLocked()
+	g.decideBotsLocked()
 
 	ev := TickEvent{
 		Tick:        g.tick,
@@ -384,6 +464,94 @@ func (g *Game) Step() TickEvent {
 
 	g.destroyEmptyFieldsLocked(&ev)
 	return ev
+}
+
+// enforceTargetLocked maintains humans+bots == targetCount when a target is
+// set: spawns bots when below target, removes arbitrary bots (never humans)
+// when above target.
+func (g *Game) enforceTargetLocked() {
+	if g.targetCount < 0 {
+		return
+	}
+	for len(g.snakes) < g.targetCount {
+		g.spawnBotLocked()
+	}
+	if len(g.snakes) <= g.targetCount {
+		return
+	}
+	for id, s := range g.snakes {
+		if len(g.snakes) <= g.targetCount {
+			break
+		}
+		if s.IsBot {
+			delete(g.snakes, id)
+			g.pendingLeaves = append(g.pendingLeaves, id)
+		}
+	}
+}
+
+// decideBotsLocked sets each bot's NextDir using one-step lookahead: discard
+// directions whose next tile is occupied by any snake's body, then pick the
+// surviving direction whose next tile minimizes Manhattan distance to its
+// landing field's pellet.
+func (g *Game) decideBotsLocked() {
+	if len(g.snakes) == 0 {
+		return
+	}
+	body := map[Tile]bool{}
+	for _, s := range g.snakes {
+		for _, t := range s.Body {
+			body[t] = true
+		}
+	}
+	dirs := [4]Direction{DirUp, DirRight, DirDown, DirLeft}
+	for _, s := range g.snakes {
+		if !s.IsBot {
+			continue
+		}
+		head := s.Body[0]
+		var opp Direction
+		if len(s.Body) > 1 {
+			opp = opposite(s.Dir)
+		}
+		bestDir := s.Dir
+		bestDist := -1
+		anySafe := false
+		for _, d := range dirs {
+			if d == opp {
+				continue
+			}
+			nh := stepTile(head, d, g)
+			if body[nh] {
+				continue
+			}
+			f := g.fields[nh.Field]
+			if f == nil {
+				continue
+			}
+			dist := manhattan(nh.Pos, f.Pellet)
+			if !anySafe || dist < bestDist {
+				bestDir = d
+				bestDist = dist
+				anySafe = true
+			}
+		}
+		if anySafe {
+			s.NextDir = bestDir
+		}
+	}
+}
+
+func manhattan(a, b Position) int {
+	dx := a.X - b.X
+	if dx < 0 {
+		dx = -dx
+	}
+	dy := a.Y - b.Y
+	if dy < 0 {
+		dy = -dy
+	}
+	return dx + dy
 }
 
 // destroyEmptyFieldsLocked destroys empty fields only when the active field

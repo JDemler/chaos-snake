@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Chaos Snake — Admin</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 720px; }
+        h1 { margin-top: 0; }
+        section { margin: 1.5rem 0; padding: 1rem; border: 1px solid #ccc; border-radius: 6px; }
+        button { padding: .4rem .8rem; margin-right: .5rem; cursor: pointer; }
+        input[type=number] { width: 5rem; padding: .3rem; }
+        .counts { font-size: 1.1rem; }
+        .counts span { margin-right: 1rem; }
+        ul { list-style: none; padding: 0; max-height: 320px; overflow-y: auto; }
+        li { display: flex; justify-content: space-between; align-items: center; padding: .3rem .5rem; border-bottom: 1px solid #eee; }
+        li.bot { background: #f6f0ff; }
+        .id { font-family: monospace; font-size: .85rem; color: #888; }
+        .err { color: #b00; min-height: 1.2em; }
+    </style>
+</head>
+<body>
+    <h1>Chaos Snake — Admin</h1>
+
+    <section>
+        <div class="counts">
+            <span>Humans: <strong id="humans">0</strong></span>
+            <span>Bots: <strong id="bots">0</strong></span>
+            <span>Target: <strong id="target">none</strong></span>
+        </div>
+        <p class="err" id="err"></p>
+    </section>
+
+    <section>
+        <h2>Bots</h2>
+        <button id="addBot">Add bot</button>
+        <button id="removeAll">Remove all bots</button>
+    </section>
+
+    <section>
+        <h2>Target total snake count</h2>
+        <p>While set, the server keeps humans + bots at this count by spawning or removing bots.</p>
+        <input type="number" id="targetInput" min="0" value="0">
+        <button id="setTarget">Set target</button>
+        <button id="clearTarget">Clear target</button>
+    </section>
+
+    <section>
+        <h2>Snakes</h2>
+        <ul id="snakes"></ul>
+    </section>
+
+    <script>
+        async function call(path, body) {
+            const opts = body !== undefined
+                ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+                : { method: path === '/admin/api/state' ? 'GET' : 'POST' };
+            const res = await fetch(path, opts);
+            if (!res.ok) {
+                document.getElementById('err').textContent = `${res.status}: ${await res.text()}`;
+                return null;
+            }
+            document.getElementById('err').textContent = '';
+            return res.json();
+        }
+
+        function render(state) {
+            if (!state) return;
+            document.getElementById('humans').textContent = state.humans;
+            document.getElementById('bots').textContent = state.bots;
+            document.getElementById('target').textContent = state.target < 0 ? 'none' : state.target;
+            const ul = document.getElementById('snakes');
+            ul.innerHTML = '';
+            state.snakes.sort((a, b) => b.length - a.length);
+            for (const s of state.snakes) {
+                const li = document.createElement('li');
+                if (s.is_bot) li.className = 'bot';
+                const left = document.createElement('span');
+                left.textContent = `${s.is_bot ? '🤖 ' : ''}${s.name} — ${s.length}`;
+                const right = document.createElement('span');
+                const idSpan = document.createElement('span');
+                idSpan.className = 'id';
+                idSpan.textContent = s.id;
+                right.appendChild(idSpan);
+                if (s.is_bot) {
+                    const btn = document.createElement('button');
+                    btn.textContent = 'remove';
+                    btn.style.marginLeft = '.5rem';
+                    btn.onclick = async () => render(await call('/admin/api/bots/remove', { id: s.id }));
+                    right.appendChild(btn);
+                }
+                li.appendChild(left);
+                li.appendChild(right);
+                ul.appendChild(li);
+            }
+        }
+
+        async function refresh() { render(await call('/admin/api/state')); }
+
+        document.getElementById('addBot').onclick = async () => render(await call('/admin/api/bots/add', {}));
+        document.getElementById('removeAll').onclick = async () => render(await call('/admin/api/bots/remove_all', {}));
+        document.getElementById('setTarget').onclick = async () => {
+            const n = parseInt(document.getElementById('targetInput').value, 10);
+            render(await call('/admin/api/target', { target: isNaN(n) ? null : n }));
+        };
+        document.getElementById('clearTarget').onclick = async () => render(await call('/admin/api/target', { target: null }));
+
+        refresh();
+        setInterval(refresh, 1000);
+    </script>
+</body>
+</html>

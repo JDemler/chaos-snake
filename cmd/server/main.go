@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"chaos-snake/internal/admin"
 	"chaos-snake/internal/game"
 	"chaos-snake/internal/transport"
 )
@@ -26,6 +27,9 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 	mux.HandleFunc("/ws", hub.HandleWebSocket)
+	adminHandler := admin.NewHandler(g)
+	mux.Handle("/admin", adminHandler)
+	mux.Handle("/admin/", adminHandler)
 
 	srv := &http.Server{
 		Addr:              *addr,
