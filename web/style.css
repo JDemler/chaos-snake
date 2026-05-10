@@ -19,15 +19,8 @@ header {
     flex-wrap: wrap;
 }
 
-header h1 {
-    margin: 0;
-    font-size: 1.4rem;
-}
-
-header span {
-    font-size: 0.9rem;
-    color: #aaa;
-}
+header h1 { margin: 0; font-size: 1.4rem; }
+header span { font-size: 0.9rem; color: #aaa; }
 
 #join {
     margin: 0.25rem 0 0.75rem;
@@ -58,13 +51,50 @@ header span {
     background: #444;
 }
 
+#play {
+    display: flex;
+    gap: 1rem;
+    padding: 0.5rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
 canvas {
     background: #000;
     border: 1px solid #333;
     image-rendering: pixelated;
+    touch-action: none;
+}
+
+#main {
     max-width: 100%;
     height: auto;
-    touch-action: none;
+}
+
+#thumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    max-width: 320px;
+    align-content: flex-start;
+}
+
+.thumb {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.thumb-label {
+    font-size: 0.7rem;
+    color: #888;
+    font-family: ui-monospace, monospace;
+}
+
+.thumb canvas {
+    border: 1px solid #222;
 }
 
 #dpad {
@@ -86,9 +116,3 @@ canvas {
 #dpad button[data-dir="left"]  { grid-column: 1; grid-row: 2; }
 #dpad button[data-dir="down"]  { grid-column: 2; grid-row: 3; }
 #dpad button[data-dir="right"] { grid-column: 3; grid-row: 2; }
-
-@media (hover: none) {
-    #dpad:not([hidden]) {
-        display: grid;
-    }
-}

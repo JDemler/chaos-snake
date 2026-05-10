@@ -29,6 +29,14 @@ a control to join the game.
 After joining, the player is placed into one of the active fields and begins
 controlling a snake immediately.
 
+## Behavior: Player Sees Their Current Field Large, Other Fields as Thumbnails
+
+While playing, the client renders the field that the player's snake head
+currently occupies as the main, large view, and renders every other active
+field as a smaller live thumbnail beside or below the main view. When the
+player teleports across an edge, the main view switches to follow them to
+their new field; the field they left becomes one of the thumbnails.
+
 ## Behavior: Player Controls Via Arrow Keys, WASD, and On-Screen Touch Buttons
 
 Players can change their snake's direction using either the arrow keys or

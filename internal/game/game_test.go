@@ -4,13 +4,28 @@ import (
 	"testing"
 )
 
+// firstFieldID returns one of the fields' IDs (used in tests with one field).
+func firstFieldID(g *Game) FieldID {
+	for id := range g.fields {
+		return id
+	}
+	return ""
+}
+
+func setSnake(g *Game, id string, body []Tile, dir Direction) {
+	s := g.snakes[id]
+	s.Body = body
+	s.Dir = dir
+	s.NextDir = dir
+	s.PeakLength = len(body)
+}
+
 func TestSnakeMovesForwardOneTilePerTick(t *testing.T) {
 	g := NewGame()
+	fid := firstFieldID(g)
+	g.fields[fid].Pellet = Position{0, 0}
 	s := g.Join("a")
-	g.snakes[s.ID].Body = []Position{{10, 10}}
-	g.snakes[s.ID].Dir = DirRight
-	g.snakes[s.ID].NextDir = DirRight
-	g.pellet = Position{0, 0}
+	setSnake(g, s.ID, []Tile{{fid, Position{10, 10}}}, DirRight)
 
 	g.Step()
 
@@ -18,34 +33,54 @@ func TestSnakeMovesForwardOneTilePerTick(t *testing.T) {
 	if len(got.Body) != 1 {
 		t.Fatalf("expected length 1, got %d", len(got.Body))
 	}
-	if got.Body[0] != (Position{11, 10}) {
-		t.Fatalf("expected head at (11,10), got %v", got.Body[0])
+	if got.Body[0] != (Tile{fid, Position{11, 10}}) {
+		t.Fatalf("expected head at %v(11,10), got %v", fid, got.Body[0])
 	}
 }
 
-func TestSnakeWrapsAroundEdges(t *testing.T) {
+func TestSingleFieldEdgeWraps(t *testing.T) {
 	g := NewGame()
+	fid := firstFieldID(g)
+	g.fields[fid].Pellet = Position{0, 29}
 	s := g.Join("a")
-	g.snakes[s.ID].Body = []Position{{29, 10}}
-	g.snakes[s.ID].Dir = DirRight
-	g.snakes[s.ID].NextDir = DirRight
-	g.pellet = Position{0, 29}
+	setSnake(g, s.ID, []Tile{{fid, Position{29, 10}}}, DirRight)
 
 	g.Step()
 
 	got := g.snakes[s.ID]
-	if got.Body[0] != (Position{0, 10}) {
-		t.Fatalf("expected wrap to (0,10), got %v", got.Body[0])
+	if got.Body[0] != (Tile{fid, Position{0, 10}}) {
+		t.Fatalf("single-field wrap to (0,10) expected, got %v", got.Body[0])
+	}
+}
+
+func TestMultiFieldTeleportPreservesPerpendicularCoord(t *testing.T) {
+	g := NewGame()
+	f1 := firstFieldID(g)
+	g.fields[f1].Pellet = Position{0, 0}
+	f2 := g.spawnFieldLocked()
+	g.fields[f2.ID].Pellet = Position{0, 0}
+
+	s := g.Join("a")
+	// Force the snake onto f1 right edge, going right.
+	setSnake(g, s.ID, []Tile{{f1, Position{29, 17}}}, DirRight)
+
+	g.Step()
+
+	got := g.snakes[s.ID]
+	if got.Body[0].Field != f2.ID {
+		t.Fatalf("expected teleport to %v, got %v", f2.ID, got.Body[0].Field)
+	}
+	if got.Body[0].Pos != (Position{0, 17}) {
+		t.Fatalf("expected entry at (0,17) on opposite edge, got %v", got.Body[0].Pos)
 	}
 }
 
 func TestPelletGrowsSnakeAndRespawns(t *testing.T) {
 	g := NewGame()
+	fid := firstFieldID(g)
+	g.fields[fid].Pellet = Position{11, 10}
 	s := g.Join("a")
-	g.snakes[s.ID].Body = []Position{{10, 10}}
-	g.snakes[s.ID].Dir = DirRight
-	g.snakes[s.ID].NextDir = DirRight
-	g.pellet = Position{11, 10}
+	setSnake(g, s.ID, []Tile{{fid, Position{10, 10}}}, DirRight)
 
 	ev := g.Step()
 
@@ -53,24 +88,26 @@ func TestPelletGrowsSnakeAndRespawns(t *testing.T) {
 	if len(got.Body) != 2 {
 		t.Fatalf("expected length 2 after eating, got %d", len(got.Body))
 	}
-	if g.pellet == (Position{11, 10}) {
-		t.Fatalf("pellet should have respawned away from eaten tile")
+	if g.fields[fid].Pellet == (Position{11, 10}) {
+		t.Fatalf("pellet should respawn away from eaten tile")
 	}
-	if ev.Pellet == nil {
-		t.Fatalf("event should report pellet respawn")
+	if len(ev.Pellets) != 1 || ev.Pellets[0].Field != fid {
+		t.Fatalf("expected one pellet change for %v, got %v", fid, ev.Pellets)
 	}
 }
 
 func TestSelfCollisionRespawns(t *testing.T) {
 	g := NewGame()
+	fid := firstFieldID(g)
+	g.fields[fid].Pellet = Position{0, 0}
 	s := g.Join("a")
-	g.snakes[s.ID].Body = []Position{
-		{5, 5}, {5, 4}, {5, 3}, {4, 3}, {4, 4}, {4, 5}, {4, 6},
+	body := []Tile{
+		{fid, Position{5, 5}}, {fid, Position{5, 4}}, {fid, Position{5, 3}},
+		{fid, Position{4, 3}}, {fid, Position{4, 4}}, {fid, Position{4, 5}},
+		{fid, Position{4, 6}},
 	}
-	g.snakes[s.ID].Dir = DirDown
+	setSnake(g, s.ID, body, DirDown)
 	g.snakes[s.ID].NextDir = DirLeft
-	g.snakes[s.ID].PeakLength = 7
-	g.pellet = Position{0, 0}
 
 	ev := g.Step()
 
@@ -78,26 +115,28 @@ func TestSelfCollisionRespawns(t *testing.T) {
 	if len(got.Body) != 1 {
 		t.Fatalf("expected respawn (length 1), got %d", len(got.Body))
 	}
-	foundDead := false
+	dead := false
 	for _, m := range ev.Moves {
 		if m.ID == s.ID && m.Dead {
-			foundDead = true
-			break
+			dead = true
 		}
 	}
-	if !foundDead {
+	if !dead {
 		t.Fatalf("event should report death+respawn for the snake")
 	}
 }
 
 func TestFollowingOwnTailDoesNotKill(t *testing.T) {
 	g := NewGame()
+	fid := firstFieldID(g)
+	g.fields[fid].Pellet = Position{0, 0}
 	s := g.Join("a")
-	g.snakes[s.ID].Body = []Position{{5, 5}, {6, 5}, {6, 6}, {5, 6}}
-	g.snakes[s.ID].Dir = DirLeft
+	body := []Tile{
+		{fid, Position{5, 5}}, {fid, Position{6, 5}},
+		{fid, Position{6, 6}}, {fid, Position{5, 6}},
+	}
+	setSnake(g, s.ID, body, DirLeft)
 	g.snakes[s.ID].NextDir = DirDown
-	g.snakes[s.ID].PeakLength = 4
-	g.pellet = Position{0, 0}
 
 	g.Step()
 
@@ -109,19 +148,13 @@ func TestFollowingOwnTailDoesNotKill(t *testing.T) {
 
 func TestHeadOnHeadKillsBoth(t *testing.T) {
 	g := NewGame()
+	fid := firstFieldID(g)
+	g.fields[fid].Pellet = Position{0, 0}
+
 	a := g.Join("a")
-	g.snakes[a.ID].Body = []Position{{5, 5}, {4, 5}}
-	g.snakes[a.ID].Dir = DirRight
-	g.snakes[a.ID].NextDir = DirRight
-	g.snakes[a.ID].PeakLength = 2
-
+	setSnake(g, a.ID, []Tile{{fid, Position{5, 5}}, {fid, Position{4, 5}}}, DirRight)
 	b := g.Join("b")
-	g.snakes[b.ID].Body = []Position{{7, 5}, {8, 5}}
-	g.snakes[b.ID].Dir = DirLeft
-	g.snakes[b.ID].NextDir = DirLeft
-	g.snakes[b.ID].PeakLength = 2
-
-	g.pellet = Position{0, 0}
+	setSnake(g, b.ID, []Tile{{fid, Position{7, 5}}, {fid, Position{8, 5}}}, DirLeft)
 
 	g.Step()
 
@@ -135,19 +168,15 @@ func TestHeadOnHeadKillsBoth(t *testing.T) {
 
 func TestRunningIntoOtherBodyKillsMover(t *testing.T) {
 	g := NewGame()
+	fid := firstFieldID(g)
+	g.fields[fid].Pellet = Position{0, 0}
+
 	a := g.Join("a")
-	g.snakes[a.ID].Body = []Position{{5, 5}, {4, 5}, {3, 5}}
-	g.snakes[a.ID].Dir = DirRight
-	g.snakes[a.ID].NextDir = DirRight
-	g.snakes[a.ID].PeakLength = 3
-
+	setSnake(g, a.ID, []Tile{
+		{fid, Position{5, 5}}, {fid, Position{4, 5}}, {fid, Position{3, 5}},
+	}, DirRight)
 	b := g.Join("b")
-	g.snakes[b.ID].Body = []Position{{4, 4}, {4, 3}}
-	g.snakes[b.ID].Dir = DirDown
-	g.snakes[b.ID].NextDir = DirDown
-	g.snakes[b.ID].PeakLength = 2
-
-	g.pellet = Position{0, 0}
+	setSnake(g, b.ID, []Tile{{fid, Position{4, 4}}, {fid, Position{4, 3}}}, DirDown)
 
 	g.Step()
 
@@ -161,23 +190,107 @@ func TestRunningIntoOtherBodyKillsMover(t *testing.T) {
 
 func TestReverseDirectionIsIgnoredForLongerSnake(t *testing.T) {
 	g := NewGame()
+	fid := firstFieldID(g)
+	g.fields[fid].Pellet = Position{0, 0}
 	s := g.Join("a")
-	g.snakes[s.ID].Body = []Position{{5, 5}, {4, 5}}
-	g.snakes[s.ID].Dir = DirRight
-	g.snakes[s.ID].NextDir = DirRight
-	g.snakes[s.ID].PeakLength = 2
+	setSnake(g, s.ID, []Tile{{fid, Position{5, 5}}, {fid, Position{4, 5}}}, DirRight)
 
 	g.SetDirection(s.ID, DirLeft)
 	if g.snakes[s.ID].NextDir == DirLeft {
 		t.Fatalf("180-degree reverse should be rejected by SetDirection")
 	}
 
-	g.pellet = Position{0, 0}
 	g.Step()
 
 	got := g.snakes[s.ID]
-	if got.Body[0] != (Position{6, 5}) {
+	if got.Body[0] != (Tile{fid, Position{6, 5}}) {
 		t.Fatalf("snake should have continued right to (6,5), got %v", got.Body[0])
+	}
+}
+
+func TestFieldSpawnsOnSixthJoin(t *testing.T) {
+	g := NewGame()
+	for i := 0; i < 5; i++ {
+		g.Join("p")
+	}
+	if len(g.fields) != 1 {
+		t.Fatalf("expected 1 field with 5 players, got %d", len(g.fields))
+	}
+	g.Join("sixth")
+	if len(g.fields) != 2 {
+		t.Fatalf("expected 2 fields after 6th player, got %d", len(g.fields))
+	}
+}
+
+func TestFieldSpawnsScaleAtEleventhJoin(t *testing.T) {
+	g := NewGame()
+	for i := 0; i < 10; i++ {
+		g.Join("p")
+	}
+	if len(g.fields) != 2 {
+		t.Fatalf("expected 2 fields with 10 players, got %d", len(g.fields))
+	}
+	g.Join("eleventh")
+	if len(g.fields) != 3 {
+		t.Fatalf("expected 3 fields after 11th player, got %d", len(g.fields))
+	}
+}
+
+func TestEmptyFieldDestroyedWhenNotLast(t *testing.T) {
+	g := NewGame()
+	f1 := firstFieldID(g)
+	g.fields[f1].Pellet = Position{0, 0}
+	f2 := g.spawnFieldLocked()
+	g.fields[f2.ID].Pellet = Position{0, 0}
+
+	// Snake fully on f2; tile that f1 has occupied: nobody.
+	s := g.Join("a")
+	setSnake(g, s.ID, []Tile{{f2.ID, Position{15, 15}}}, DirRight)
+
+	g.Step()
+
+	if _, ok := g.fields[f1]; ok {
+		t.Fatalf("empty field %v should have been destroyed", f1)
+	}
+	if _, ok := g.fields[f2.ID]; !ok {
+		t.Fatalf("field %v should still exist", f2.ID)
+	}
+}
+
+func TestLastFieldIsNotDestroyedWhenEmpty(t *testing.T) {
+	g := NewGame()
+	// No snakes, one field — should remain.
+	g.Step()
+	if len(g.fields) != 1 {
+		t.Fatalf("last field must be preserved; got %d fields", len(g.fields))
+	}
+}
+
+func TestSnakeStraddlesTwoFieldsAfterCrossing(t *testing.T) {
+	g := NewGame()
+	f1 := firstFieldID(g)
+	g.fields[f1].Pellet = Position{0, 0}
+	f2 := g.spawnFieldLocked()
+	g.fields[f2.ID].Pellet = Position{0, 0}
+
+	s := g.Join("a")
+	// Length-3 snake near f1's right edge moving right.
+	setSnake(g, s.ID, []Tile{
+		{f1, Position{29, 10}},
+		{f1, Position{28, 10}},
+		{f1, Position{27, 10}},
+	}, DirRight)
+
+	g.Step()
+
+	got := g.snakes[s.ID]
+	if got.Body[0].Field != f2.ID {
+		t.Fatalf("head should be on %v after crossing, got %v", f2.ID, got.Body[0].Field)
+	}
+	for i := 1; i < len(got.Body); i++ {
+		if got.Body[i].Field != f1 {
+			t.Fatalf("body cell %d should still be on f1, got %v", i, got.Body[i].Field)
+		}
 	}
 }
 

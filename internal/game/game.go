@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	FieldW = 30
-	FieldH = 30
-	TickHz = 10
+	FieldW           = 30
+	FieldH           = 30
+	TickHz           = 10
+	PlayersPerField  = 5
 )
 
 type Direction uint8
@@ -87,18 +88,26 @@ func (p *Position) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type FieldID string
+
+// Tile identifies a position on a specific field.
+type Tile struct {
+	Field FieldID  `json:"f"`
+	Pos   Position `json:"p"`
+}
+
 type Snake struct {
 	ID         string
 	Name       string
 	Color      string
-	Body       []Position
+	Body       []Tile
 	Dir        Direction
 	NextDir    Direction
 	PeakLength int
 }
 
 func (s *Snake) clone() *Snake {
-	body := make([]Position, len(s.Body))
+	body := make([]Tile, len(s.Body))
 	copy(body, s.Body)
 	return &Snake{
 		ID:         s.ID,
@@ -111,64 +120,107 @@ func (s *Snake) clone() *Snake {
 	}
 }
 
+type Field struct {
+	ID     FieldID
+	Pellet Position
+}
+
+func (f *Field) clone() *Field {
+	return &Field{ID: f.ID, Pellet: f.Pellet}
+}
+
 type SnakeMove struct {
 	ID     string
-	Head   Position
+	Head   Tile
 	Grew   bool
 	Dead   bool
 	Length int
 }
 
+type PelletChange struct {
+	Field FieldID
+	Pos   Position
+}
+
 type TickEvent struct {
-	Tick   uint64
-	Moves  []SnakeMove
-	Joins  []*Snake
-	Leaves []string
-	Pellet *Position
+	Tick        uint64
+	Moves       []SnakeMove
+	Joins       []*Snake
+	Leaves      []string
+	FieldJoins  []*Field
+	FieldLeaves []FieldID
+	Pellets     []PelletChange
 }
 
 type Snapshot struct {
-	Tick   uint64
-	FieldW int
-	FieldH int
-	Snakes []*Snake
-	Pellet Position
+	Tick    uint64
+	FieldW  int
+	FieldH  int
+	Fields  []*Field
+	Snakes  []*Snake
 }
 
 type Game struct {
-	mu            sync.Mutex
-	tick          uint64
-	snakes        map[string]*Snake
-	pellet        Position
-	pendingJoins  []*Snake
-	pendingLeaves []string
-	rng           *rand.Rand
+	mu                 sync.Mutex
+	tick               uint64
+	nextFieldNum       int
+	fields             map[FieldID]*Field
+	snakes             map[string]*Snake
+	pendingJoins       []*Snake
+	pendingLeaves      []string
+	pendingFieldJoins  []*Field
+	pendingFieldLeaves []FieldID
+	rng                *rand.Rand
 }
 
 func NewGame() *Game {
 	g := &Game{
+		fields: map[FieldID]*Field{},
 		snakes: map[string]*Snake{},
 		rng: rand.New(rand.NewPCG(
 			uint64(time.Now().UnixNano()),
 			0x9e3779b97f4a7c15,
 		)),
 	}
-	g.pellet = g.randomFreeTileLocked()
+	g.spawnFieldLocked()
 	return g
+}
+
+func (g *Game) spawnFieldLocked() *Field {
+	g.nextFieldNum++
+	f := &Field{
+		ID:     FieldID(fmt.Sprintf("f%d", g.nextFieldNum)),
+		Pellet: Position{-1, -1},
+	}
+	g.fields[f.ID] = f
+	f.Pellet = g.randomFreeTileInFieldLocked(f.ID)
+	g.pendingFieldJoins = append(g.pendingFieldJoins, f.clone())
+	return f
 }
 
 func (g *Game) Join(name string) *Snake {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	target := (len(g.snakes) + 1 + PlayersPerField - 1) / PlayersPerField
+	if target < 1 {
+		target = 1
+	}
+	for len(g.fields) < target {
+		g.spawnFieldLocked()
+	}
+
+	fid := g.randomFieldIDLocked()
+	spawn := g.randomFreeTileInFieldLocked(fid)
 	s := &Snake{
-		ID:         randomID(),
-		Name:       sanitizeName(name),
-		Color:      pickColor(g.rng),
-		Body:       []Position{g.randomFreeTileLocked()},
-		PeakLength: 1,
+		ID:    randomID(),
+		Name:  sanitizeName(name),
+		Color: pickColor(g.rng),
+		Body:  []Tile{{Field: fid, Pos: spawn}},
 	}
 	s.Dir = randomDir(g.rng)
 	s.NextDir = s.Dir
+	s.PeakLength = 1
 	g.snakes[s.ID] = s
 	g.pendingJoins = append(g.pendingJoins, s.clone())
 	return s.clone()
@@ -204,28 +256,36 @@ func (g *Game) Snapshot() Snapshot {
 	for _, s := range g.snakes {
 		snakes = append(snakes, s.clone())
 	}
+	fields := make([]*Field, 0, len(g.fields))
+	for _, f := range g.fields {
+		fields = append(fields, f.clone())
+	}
 	return Snapshot{
 		Tick:   g.tick,
 		FieldW: FieldW,
 		FieldH: FieldH,
+		Fields: fields,
 		Snakes: snakes,
-		Pellet: g.pellet,
 	}
 }
 
-// Step advances the world by one tick and returns a description of what
-// changed, suitable for broadcasting as a delta.
+// Step advances the world by one tick.
 func (g *Game) Step() TickEvent {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.tick++
+
 	ev := TickEvent{
-		Tick:   g.tick,
-		Joins:  g.pendingJoins,
-		Leaves: g.pendingLeaves,
+		Tick:        g.tick,
+		Joins:       g.pendingJoins,
+		Leaves:      g.pendingLeaves,
+		FieldJoins:  g.pendingFieldJoins,
+		FieldLeaves: g.pendingFieldLeaves,
 	}
 	g.pendingJoins = nil
 	g.pendingLeaves = nil
+	g.pendingFieldJoins = nil
+	g.pendingFieldLeaves = nil
 
 	if len(g.snakes) == 0 {
 		return ev
@@ -233,7 +293,7 @@ func (g *Game) Step() TickEvent {
 
 	type plan struct {
 		s       *Snake
-		newHead Position
+		newHead Tile
 	}
 	plans := make([]plan, 0, len(g.snakes))
 	for _, s := range g.snakes {
@@ -242,23 +302,25 @@ func (g *Game) Step() TickEvent {
 			dir = s.Dir
 		}
 		s.Dir = dir
-		nh := wrap(step(s.Body[0], dir))
+		head := s.Body[0]
+		nh := stepTile(head, dir, g)
 		plans = append(plans, plan{s, nh})
 	}
 
-	headCount := map[Position]int{}
+	headCount := map[Tile]int{}
 	for _, p := range plans {
 		headCount[p.newHead]++
 	}
 
 	eaten := map[*Snake]bool{}
 	for _, p := range plans {
-		if p.newHead == g.pellet {
+		f := g.fields[p.newHead.Field]
+		if f != nil && p.newHead.Pos == f.Pellet {
 			eaten[p.s] = true
 		}
 	}
 
-	occupied := map[Position]bool{}
+	occupied := map[Tile]bool{}
 	for _, s := range g.snakes {
 		end := len(s.Body)
 		if !eaten[s] {
@@ -280,16 +342,16 @@ func (g *Game) Step() TickEvent {
 		}
 	}
 
-	pelletEaten := false
+	pelletEaten := map[FieldID]bool{}
 	for _, p := range plans {
 		if deaths[p.s] {
 			continue
 		}
-		newBody := make([]Position, 0, len(p.s.Body)+1)
+		newBody := make([]Tile, 0, len(p.s.Body)+1)
 		newBody = append(newBody, p.newHead)
 		if eaten[p.s] {
 			newBody = append(newBody, p.s.Body...)
-			pelletEaten = true
+			pelletEaten[p.newHead.Field] = true
 		} else {
 			newBody = append(newBody, p.s.Body[:len(p.s.Body)-1]...)
 		}
@@ -305,28 +367,111 @@ func (g *Game) Step() TickEvent {
 		})
 	}
 
-	if pelletEaten {
-		g.pellet = g.randomFreeTileLocked()
+	for fid := range pelletEaten {
+		f := g.fields[fid]
+		if f == nil {
+			continue
+		}
+		f.Pellet = g.randomFreeTileInFieldLocked(fid)
+		ev.Pellets = append(ev.Pellets, PelletChange{Field: fid, Pos: f.Pellet})
 	}
 
 	for s := range deaths {
-		spawn := g.randomFreeTileLocked()
-		s.Body = []Position{spawn}
+		fid := g.randomFieldIDLocked()
+		spawn := g.randomFreeTileInFieldLocked(fid)
+		s.Body = []Tile{{Field: fid, Pos: spawn}}
 		s.Dir = randomDir(g.rng)
 		s.NextDir = s.Dir
 		ev.Moves = append(ev.Moves, SnakeMove{
 			ID:     s.ID,
-			Head:   spawn,
+			Head:   Tile{Field: fid, Pos: spawn},
 			Dead:   true,
 			Length: 1,
 		})
 	}
 
-	if pelletEaten {
-		p := g.pellet
-		ev.Pellet = &p
-	}
+	g.destroyEmptyFieldsLocked(&ev)
 	return ev
+}
+
+// destroyEmptyFieldsLocked removes any field with no snake body cells, except
+// the final remaining field, and appends destroyed IDs to the event.
+func (g *Game) destroyEmptyFieldsLocked(ev *TickEvent) {
+	if len(g.fields) <= 1 {
+		return
+	}
+	occupied := map[FieldID]bool{}
+	for _, s := range g.snakes {
+		for _, t := range s.Body {
+			occupied[t.Field] = true
+		}
+	}
+	for id := range g.fields {
+		if !occupied[id] && len(g.fields) > 1 {
+			delete(g.fields, id)
+			ev.FieldLeaves = append(ev.FieldLeaves, id)
+		}
+	}
+}
+
+func stepTile(t Tile, d Direction, g *Game) Tile {
+	np := step(t.Pos, d)
+	if np.X >= 0 && np.X < FieldW && np.Y >= 0 && np.Y < FieldH {
+		return Tile{Field: t.Field, Pos: np}
+	}
+	dest := g.pickTeleportDestinationLocked(t.Field)
+	return Tile{Field: dest, Pos: oppositeEdgePosition(d, t.Pos)}
+}
+
+// pickTeleportDestinationLocked picks a random field other than `from`. If
+// `from` is the only field, it returns `from` (single-field wrap).
+func (g *Game) pickTeleportDestinationLocked(from FieldID) FieldID {
+	if len(g.fields) <= 1 {
+		return from
+	}
+	others := make([]FieldID, 0, len(g.fields)-1)
+	for id := range g.fields {
+		if id != from {
+			others = append(others, id)
+		}
+	}
+	return others[g.rng.IntN(len(others))]
+}
+
+// oppositeEdgePosition returns the entry position on the edge opposite the
+// one the snake exited, preserving the perpendicular coordinate of the exit.
+func oppositeEdgePosition(exitDir Direction, exitFromPos Position) Position {
+	switch exitDir {
+	case DirRight:
+		return Position{X: 0, Y: clampY(exitFromPos.Y)}
+	case DirLeft:
+		return Position{X: FieldW - 1, Y: clampY(exitFromPos.Y)}
+	case DirDown:
+		return Position{X: clampX(exitFromPos.X), Y: 0}
+	case DirUp:
+		return Position{X: clampX(exitFromPos.X), Y: FieldH - 1}
+	}
+	return Position{X: 0, Y: 0}
+}
+
+func clampX(x int) int {
+	if x < 0 {
+		return 0
+	}
+	if x >= FieldW {
+		return FieldW - 1
+	}
+	return x
+}
+
+func clampY(y int) int {
+	if y < 0 {
+		return 0
+	}
+	if y >= FieldH {
+		return FieldH - 1
+	}
+	return y
 }
 
 func step(p Position, d Direction) Position {
@@ -343,25 +488,24 @@ func step(p Position, d Direction) Position {
 	return p
 }
 
-func wrap(p Position) Position {
-	if p.X < 0 {
-		p.X = FieldW - 1
-	} else if p.X >= FieldW {
-		p.X = 0
+func (g *Game) randomFieldIDLocked() FieldID {
+	ids := make([]FieldID, 0, len(g.fields))
+	for id := range g.fields {
+		ids = append(ids, id)
 	}
-	if p.Y < 0 {
-		p.Y = FieldH - 1
-	} else if p.Y >= FieldH {
-		p.Y = 0
-	}
-	return p
+	return ids[g.rng.IntN(len(ids))]
 }
 
-func (g *Game) randomFreeTileLocked() Position {
-	occupied := map[Position]bool{g.pellet: true}
+func (g *Game) randomFreeTileInFieldLocked(fid FieldID) Position {
+	occupied := map[Position]bool{}
+	if f := g.fields[fid]; f != nil && f.Pellet.X >= 0 {
+		occupied[f.Pellet] = true
+	}
 	for _, s := range g.snakes {
-		for _, p := range s.Body {
-			occupied[p] = true
+		for _, t := range s.Body {
+			if t.Field == fid {
+				occupied[t.Pos] = true
+			}
 		}
 	}
 	if len(occupied) >= FieldW*FieldH {

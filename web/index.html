@@ -11,6 +11,7 @@
         <h1>Chaos Snake</h1>
         <span id="status">connecting…</span>
         <span id="length"></span>
+        <span id="fieldcount"></span>
     </header>
     <div id="join">
         <form id="joinForm">
@@ -18,7 +19,10 @@
             <button type="submit">Join</button>
         </form>
     </div>
-    <canvas id="canvas" width="600" height="600"></canvas>
+    <div id="play">
+        <canvas id="main" width="600" height="600"></canvas>
+        <div id="thumbs"></div>
+    </div>
     <div id="dpad" hidden>
         <button data-dir="up" aria-label="up">↑</button>
         <button data-dir="left" aria-label="left">←</button>

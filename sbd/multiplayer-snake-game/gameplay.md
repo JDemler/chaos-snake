@@ -34,10 +34,6 @@ status:
       name: TestReverseDirectionIsIgnoredForLongerSnake
 ---
 
-> Note: with only one field provisioned today, the "different field, chosen at
-> random" branch of the edge-teleport behavior is vacuously satisfied by the
-> single-field fallback. Multi-field teleport is tracked as not-implemented in
-> [fields.md](./fields.md).
 
 # Gameplay
 
