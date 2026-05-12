@@ -29,6 +29,12 @@
     let reconnectDelay = 500;
     let lastName = '';
 
+    // Set when the local player's snake crosses a field edge; the entered edge
+    // of the new main field flashes briefly to make the teleport read as
+    // continuous motion rather than re-spawn.
+    let lastCrossing = null; // { edge: 'left'|'right'|'top'|'bottom', start: ms }
+    let mainRAF = null;
+
     function connect() {
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -49,10 +55,11 @@
             state.fields.clear();
             state.snakes.clear();
             state.you = '';
+            lastCrossing = null;
             joinDiv.hidden = !!lastName;
             dpad.hidden = true;
             clearThumbs();
-            renderAll();
+            renderThumbs();
             ws = null;
             setTimeout(connect, reconnectDelay);
             reconnectDelay = Math.min(reconnectDelay * 2, 5000);
@@ -92,7 +99,8 @@
         }
         rebuildThumbs();
         updateLength();
-        renderAll();
+        renderThumbs();
+        startMainLoop();
     }
 
     function applyDelta(msg) {
@@ -114,6 +122,18 @@
             for (const m of msg.moves) {
                 const s = state.snakes.get(m.id);
                 if (!s) continue;
+                const prevHead = s.body[0];
+                if (m.id === state.you && !m.dead && prevHead && prevHead.f !== m.head.f) {
+                    // Own snake crossed a field edge. The new head lands on the
+                    // opposite edge of the destination field; figure out which.
+                    const x = m.head.p[0], y = m.head.p[1];
+                    let edge = null;
+                    if (x === 0) edge = 'left';
+                    else if (x === state.size.w - 1) edge = 'right';
+                    else if (y === 0) edge = 'top';
+                    else if (y === state.size.h - 1) edge = 'bottom';
+                    if (edge) lastCrossing = { edge, start: performance.now() };
+                }
                 if (m.dead) {
                     s.body = [{ f: m.head.f, p: [m.head.p[0], m.head.p[1]] }];
                 } else {
@@ -130,7 +150,7 @@
         }
         rebuildThumbs();
         updateLength();
-        renderAll();
+        renderThumbs();
     }
 
     function cloneSnake(s) {
@@ -206,26 +226,38 @@
         thumbs.clear();
     }
 
-    function renderAll() {
+    function startMainLoop() {
+        if (mainRAF !== null) return;
+        const loop = (now) => {
+            renderMain(now);
+            mainRAF = requestAnimationFrame(loop);
+        };
+        mainRAF = requestAnimationFrame(loop);
+    }
+
+    function renderMain(now) {
         const mainID = currentFieldID();
         if (mainID) {
-            renderField(mainCtx, mainID, MAIN_TILE, true);
+            renderField(mainCtx, mainID, MAIN_TILE, true, now);
         } else {
             mainCtx.fillStyle = '#000';
             mainCtx.fillRect(0, 0, mainCanvas.width, mainCanvas.height);
         }
+    }
+
+    function renderThumbs() {
         for (const [id, entry] of thumbs) {
-            renderField(entry.ctx, id, THUMB_TILE, false);
+            renderField(entry.ctx, id, THUMB_TILE, false, 0);
         }
     }
 
-    function renderField(ctx, fieldID, tile, drawGrid) {
+    function renderField(ctx, fieldID, tile, isMain, now) {
         const w = state.size.w * tile;
         const h = state.size.h * tile;
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, w, h);
 
-        if (drawGrid) {
+        if (isMain) {
             ctx.strokeStyle = '#1a1a1a';
             ctx.lineWidth = 1;
             for (let x = 0; x <= state.size.w; x++) {
@@ -257,22 +289,22 @@
             }
         }
 
-        // snakes
+        // Snakes: other players first, own snake last with a halo so the
+        // player can pick themselves out without hunting.
+        const inset = tile >= 8 ? 1 : 0;
         for (const s of state.snakes.values()) {
-            for (let i = 0; i < s.body.length; i++) {
-                const t = s.body[i];
-                if (t.f !== fieldID) continue;
-                ctx.fillStyle = i === 0 ? brighten(s.color) : s.color;
-                const inset = tile >= 8 ? 1 : 0;
-                ctx.fillRect(
-                    t.p[0] * tile + inset,
-                    t.p[1] * tile + inset,
-                    tile - inset * 2,
-                    tile - inset * 2,
-                );
-            }
-            if (s.id === state.you && tile >= 8) {
-                const head = s.body[0];
+            if (s.id === state.you) continue;
+            drawSnakeBody(ctx, s, fieldID, tile, inset);
+        }
+        const me = state.snakes.get(state.you);
+        if (me) {
+            ctx.save();
+            ctx.shadowBlur = isMain ? tile * 0.8 : tile * 0.6;
+            ctx.shadowColor = '#9cf';
+            drawSnakeBody(ctx, me, fieldID, tile, inset);
+            ctx.restore();
+            if (tile >= 8) {
+                const head = me.body[0];
                 if (head && head.f === fieldID) {
                     ctx.strokeStyle = '#fff';
                     ctx.lineWidth = 2;
@@ -280,6 +312,62 @@
                 }
             }
         }
+
+        if (isMain) drawCrossingFlash(ctx, w, h, tile, now);
+    }
+
+    function drawSnakeBody(ctx, s, fieldID, tile, inset) {
+        for (let i = 0; i < s.body.length; i++) {
+            const t = s.body[i];
+            if (t.f !== fieldID) continue;
+            ctx.fillStyle = i === 0 ? brighten(s.color) : s.color;
+            ctx.fillRect(
+                t.p[0] * tile + inset,
+                t.p[1] * tile + inset,
+                tile - inset * 2,
+                tile - inset * 2,
+            );
+        }
+    }
+
+    function drawCrossingFlash(ctx, w, h, tile, now) {
+        if (!lastCrossing) return;
+        const duration = 500;
+        const elapsed = now - lastCrossing.start;
+        if (elapsed >= duration) { lastCrossing = null; return; }
+        const alpha = 1 - elapsed / duration;
+        const band = tile * 3;
+        const lit = `rgba(150, 220, 255, ${alpha})`;
+        const dim = 'rgba(150, 220, 255, 0)';
+        ctx.save();
+        let grad;
+        switch (lastCrossing.edge) {
+            case 'left':
+                grad = ctx.createLinearGradient(0, 0, band, 0);
+                grad.addColorStop(0, lit); grad.addColorStop(1, dim);
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, band, h);
+                break;
+            case 'right':
+                grad = ctx.createLinearGradient(w - band, 0, w, 0);
+                grad.addColorStop(0, dim); grad.addColorStop(1, lit);
+                ctx.fillStyle = grad;
+                ctx.fillRect(w - band, 0, band, h);
+                break;
+            case 'top':
+                grad = ctx.createLinearGradient(0, 0, 0, band);
+                grad.addColorStop(0, lit); grad.addColorStop(1, dim);
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, w, band);
+                break;
+            case 'bottom':
+                grad = ctx.createLinearGradient(0, h - band, 0, h);
+                grad.addColorStop(0, dim); grad.addColorStop(1, lit);
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, h - band, w, band);
+                break;
+        }
+        ctx.restore();
     }
 
     function brighten(hex) {

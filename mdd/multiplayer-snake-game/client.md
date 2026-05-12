@@ -50,6 +50,18 @@ Players can change their snake's direction using either the arrow keys or
 WASD on a keyboard, or by tapping on-screen directional buttons that the
 client renders for touch devices. All three input methods are equivalent.
 
+## Behavior: Field Edges Read as Portals, Not Walls
+
+The client visibly communicates that field edges teleport and never kill,
+as defined in [gameplay.md](./gameplay.md), so players do not mistake an
+edge for a deadly wall.
+
+## Behavior: Own Snake Is Visually Distinguished
+
+The player's own snake is rendered so it is immediately distinguishable
+from every other snake on the field, so the player never has to hunt for
+which snake they are controlling.
+
 ## Technical Constraint: Client Is Plain HTML, JavaScript, and CSS
 
 The client is delivered as static HTML, JavaScript, and CSS. No client-side

@@ -70,6 +70,19 @@ canvas {
 #main {
     max-width: 100%;
     height: auto;
+    border: 2px dashed #6ad;
+    animation: portal-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes portal-pulse {
+    0%, 100% {
+        border-color: #6ad;
+        box-shadow: 0 0 14px 2px rgba(106, 168, 221, 0.55);
+    }
+    50% {
+        border-color: #b6f;
+        box-shadow: 0 0 24px 6px rgba(180, 110, 250, 0.7);
+    }
 }
 
 #thumbs {
