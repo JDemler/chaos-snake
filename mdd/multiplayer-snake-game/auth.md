@@ -1,5 +1,5 @@
 ---
-type: sbd-slice
+type: mdd-slice
 title: Authentication and Identity
 realizes: ./intent.md
 status:

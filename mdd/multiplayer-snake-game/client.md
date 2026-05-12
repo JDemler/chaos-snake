@@ -1,5 +1,5 @@
 ---
-type: sbd-slice
+type: mdd-slice
 title: Client
 realizes: ./intent.md
 status:

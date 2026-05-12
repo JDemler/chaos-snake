@@ -1,5 +1,5 @@
 ---
-type: sbd-slice
+type: mdd-slice
 title: Bots and Admin
 realizes: ./intent.md
 status:
