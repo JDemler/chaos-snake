@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -160,11 +161,18 @@ type TickEvent struct {
 }
 
 type Snapshot struct {
-	Tick    uint64
-	FieldW  int
-	FieldH  int
-	Fields  []*Field
-	Snakes  []*Snake
+	Tick        uint64
+	FieldW      int
+	FieldH      int
+	Fields      []*Field
+	Snakes      []*Snake
+	Leaderboard []LeaderEntry
+}
+
+// LeaderEntry is one row of the persistent leaderboard.
+type LeaderEntry struct {
+	Name string
+	Peak int
 }
 
 type Game struct {
@@ -176,6 +184,7 @@ type Game struct {
 	pelletsPerField    int
 	fields             map[FieldID]*Field
 	snakes             map[string]*Snake
+	peakByName         map[string]int
 	pendingJoins       []*Snake
 	pendingLeaves      []string
 	pendingFieldJoins  []*Field
@@ -187,6 +196,7 @@ func NewGame() *Game {
 	g := &Game{
 		fields:          map[FieldID]*Field{},
 		snakes:          map[string]*Snake{},
+		peakByName:      map[string]int{},
 		targetCount:     -1,
 		pelletsPerField: DefaultPelletsPerField,
 		rng: rand.New(rand.NewPCG(
@@ -338,6 +348,9 @@ func (g *Game) spawnSnakeLocked(name string, isBot bool) *Snake {
 	s.Dir = randomDir(g.rng)
 	s.NextDir = s.Dir
 	g.snakes[s.ID] = s
+	if g.peakByName[name] < 1 {
+		g.peakByName[name] = 1
+	}
 	g.pendingJoins = append(g.pendingJoins, s.clone())
 	return s
 }
@@ -373,12 +386,50 @@ func (g *Game) Snapshot() Snapshot {
 		fields = append(fields, f.clone())
 	}
 	return Snapshot{
-		Tick:   g.tick,
-		FieldW: FieldW,
-		FieldH: FieldH,
-		Fields: fields,
-		Snakes: snakes,
+		Tick:        g.tick,
+		FieldW:      FieldW,
+		FieldH:      FieldH,
+		Fields:      fields,
+		Snakes:      snakes,
+		Leaderboard: g.leaderboardLocked(),
 	}
+}
+
+// Leaderboard returns all known players ordered by peak length descending,
+// with ties broken by name ascending.
+func (g *Game) Leaderboard() []LeaderEntry {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.leaderboardLocked()
+}
+
+func (g *Game) leaderboardLocked() []LeaderEntry {
+	out := make([]LeaderEntry, 0, len(g.peakByName))
+	for name, peak := range g.peakByName {
+		out = append(out, LeaderEntry{Name: name, Peak: peak})
+	}
+	sortLeaderboard(out)
+	return out
+}
+
+// recordPeaksLocked bumps each player's peak length to at least their current
+// body length. Called at the top of every tick so a snake that dies on the
+// same tick it reached a new high still records it.
+func (g *Game) recordPeaksLocked() {
+	for _, s := range g.snakes {
+		if len(s.Body) > g.peakByName[s.Name] {
+			g.peakByName[s.Name] = len(s.Body)
+		}
+	}
+}
+
+func sortLeaderboard(entries []LeaderEntry) {
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Peak != entries[j].Peak {
+			return entries[i].Peak > entries[j].Peak
+		}
+		return entries[i].Name < entries[j].Name
+	})
 }
 
 // Step advances the world by one tick.
@@ -389,6 +440,7 @@ func (g *Game) Step() TickEvent {
 
 	g.enforceTargetLocked()
 	g.decideBotsLocked()
+	g.recordPeaksLocked()
 
 	ev := TickEvent{
 		Tick:        g.tick,

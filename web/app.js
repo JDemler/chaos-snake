@@ -6,6 +6,8 @@
     const lengthEl = document.getElementById('length');
     const fieldCountEl = document.getElementById('fieldcount');
     const playerCountEl = document.getElementById('playercount');
+    const leadersEl = document.getElementById('leaders');
+    const kingEl = document.getElementById('king');
     const joinDiv = document.getElementById('join');
     const joinForm = document.getElementById('joinForm');
     const nameInput = document.getElementById('name');
@@ -19,8 +21,11 @@
         tickHz: 10,
         fields: new Map(),  // FieldID -> { id, pellet }
         snakes: new Map(),  // SnakeID -> { id, name, color, body[Tile], dir }
+        leaderboard: [],    // [{ name, peak }] sorted desc
         you: '',
     };
+
+    const LEADER_LIMIT = 10;
 
     // FieldID -> {canvas, ctx, label}
     const thumbs = new Map();
@@ -54,12 +59,14 @@
             statusEl.textContent = 'disconnected, reconnecting…';
             state.fields.clear();
             state.snakes.clear();
+            state.leaderboard = [];
             state.you = '';
             lastCrossing = null;
             joinDiv.hidden = !!lastName;
             dpad.hidden = true;
             clearThumbs();
             renderThumbs();
+            renderLeaderboard();
             ws = null;
             setTimeout(connect, reconnectDelay);
             reconnectDelay = Math.min(reconnectDelay * 2, 5000);
@@ -89,6 +96,7 @@
         }
         state.snakes.clear();
         for (const s of msg.snakes) state.snakes.set(s.id, cloneSnake(s));
+        state.leaderboard = (msg.leaderboard || []).map(e => ({ name: e.name, peak: e.peak }));
 
         if (state.you) {
             joinDiv.hidden = true;
@@ -99,6 +107,7 @@
         }
         rebuildThumbs();
         updateLength();
+        renderLeaderboard();
         renderThumbs();
         startMainLoop();
     }
@@ -150,6 +159,7 @@
         }
         rebuildThumbs();
         updateLength();
+        renderLeaderboard();
         renderThumbs();
     }
 
@@ -173,6 +183,45 @@
             ? `fields: ${state.fields.size}`
             : '';
         playerCountEl.textContent = `players: ${state.snakes.size}`;
+    }
+
+    // currentKing returns { name, length } of the longest snake currently
+    // alive, or null if no snakes exist. Ties broken by name ascending.
+    function currentKing() {
+        let best = null;
+        for (const s of state.snakes.values()) {
+            const len = s.body.length;
+            if (!best || len > best.length ||
+                (len === best.length && s.name < best.name)) {
+                best = { name: s.name, length: len };
+            }
+        }
+        return best;
+    }
+
+    function renderLeaderboard() {
+        const king = currentKing();
+        if (king) {
+            kingEl.textContent = `👑 ${king.name} — ${king.length}`;
+        } else {
+            kingEl.textContent = '';
+        }
+        leadersEl.innerHTML = '';
+        const top = state.leaderboard.slice(0, LEADER_LIMIT);
+        for (const e of top) {
+            const li = document.createElement('li');
+            li.className = 'leader';
+            if (king && e.name === king.name) li.classList.add('is-king');
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'leader-name';
+            nameSpan.textContent = e.name;
+            const peakSpan = document.createElement('span');
+            peakSpan.className = 'leader-peak';
+            peakSpan.textContent = e.peak;
+            li.appendChild(nameSpan);
+            li.appendChild(peakSpan);
+            leadersEl.appendChild(li);
+        }
     }
 
     // currentFieldID returns the field the player's head is on (when joined),

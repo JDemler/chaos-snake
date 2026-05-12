@@ -22,12 +22,18 @@ type wireSnake struct {
 }
 
 type wireSnapshot struct {
-	Type      string        `json:"type"`
-	Tick      uint64        `json:"tick"`
-	FieldSize wireFieldSize `json:"field_size"`
-	Fields    []wireField   `json:"fields"`
-	Snakes    []wireSnake   `json:"snakes"`
-	You       string        `json:"you"`
+	Type        string            `json:"type"`
+	Tick        uint64            `json:"tick"`
+	FieldSize   wireFieldSize     `json:"field_size"`
+	Fields      []wireField       `json:"fields"`
+	Snakes      []wireSnake       `json:"snakes"`
+	Leaderboard []wireLeaderEntry `json:"leaderboard"`
+	You         string            `json:"you"`
+}
+
+type wireLeaderEntry struct {
+	Name string `json:"name"`
+	Peak int    `json:"peak"`
 }
 
 type wireMove struct {
@@ -85,13 +91,18 @@ func makeSnapshot(s game.Snapshot, you string) wireSnapshot {
 	for _, f := range s.Fields {
 		fields = append(fields, toWireField(f))
 	}
+	leaderboard := make([]wireLeaderEntry, 0, len(s.Leaderboard))
+	for _, e := range s.Leaderboard {
+		leaderboard = append(leaderboard, wireLeaderEntry{Name: e.Name, Peak: e.Peak})
+	}
 	return wireSnapshot{
-		Type:      "snapshot",
-		Tick:      s.Tick,
-		FieldSize: wireFieldSize{W: s.FieldW, H: s.FieldH, TickHz: game.TickHz},
-		Fields:    fields,
-		Snakes:    snakes,
-		You:       you,
+		Type:        "snapshot",
+		Tick:        s.Tick,
+		FieldSize:   wireFieldSize{W: s.FieldW, H: s.FieldH, TickHz: game.TickHz},
+		Fields:      fields,
+		Snakes:      snakes,
+		Leaderboard: leaderboard,
+		You:         you,
 	}
 }
 

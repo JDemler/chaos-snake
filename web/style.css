@@ -85,11 +85,68 @@ canvas {
     }
 }
 
+#side {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 320px;
+}
+
+#leaderboard {
+    background: #181818;
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    min-width: 200px;
+}
+
+#leaderboard h2 {
+    margin: 0 0 0.25rem 0;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #999;
+}
+
+#king {
+    font-size: 0.85rem;
+    color: #ffd866;
+    min-height: 1.2em;
+    margin-bottom: 0.35rem;
+}
+
+#leaders {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 0.85rem;
+}
+
+.leader {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.1rem 0;
+    color: #ccc;
+}
+
+.leader.is-king {
+    color: #ffd866;
+    font-weight: 600;
+}
+
+.leader-peak {
+    color: #888;
+}
+
+.leader.is-king .leader-peak {
+    color: #ffd866;
+}
+
 #thumbs {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    max-width: 320px;
     align-content: flex-start;
 }
 

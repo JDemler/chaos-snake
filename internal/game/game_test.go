@@ -452,6 +452,75 @@ func TestSetPelletsPerFieldClampsNegativeToZero(t *testing.T) {
 	}
 }
 
+func TestLeaderboardRecordsPeakLengthAcrossDeaths(t *testing.T) {
+	g := NewGame()
+	fid := firstFieldID(g)
+	setPellet(g, fid, Position{0, 0})
+
+	s := g.Join("rex")
+	body := []Tile{
+		{fid, Position{5, 5}}, {fid, Position{5, 4}}, {fid, Position{5, 3}},
+		{fid, Position{4, 3}}, {fid, Position{4, 4}}, {fid, Position{4, 5}},
+		{fid, Position{4, 6}},
+	}
+	setSnake(g, s.ID, body, DirDown)
+	g.snakes[s.ID].NextDir = DirLeft
+
+	g.Step()
+
+	if got := len(g.snakes[s.ID].Body); got != 1 {
+		t.Fatalf("snake should be respawned at length 1, got %d", got)
+	}
+
+	lb := g.Leaderboard()
+	var peak int
+	for _, e := range lb {
+		if e.Name == "rex" {
+			peak = e.Peak
+		}
+	}
+	if peak < len(body) {
+		t.Fatalf("rex peak should survive death; expected >=%d, got %d", len(body), peak)
+	}
+}
+
+func TestLeaderboardOrdersByPeakThenName(t *testing.T) {
+	g := NewGame()
+	g.peakByName["alice"] = 7
+	g.peakByName["bob"] = 9
+	g.peakByName["carol"] = 9
+	g.peakByName["dave"] = 3
+
+	lb := g.Leaderboard()
+	if len(lb) != 4 {
+		t.Fatalf("want 4 entries, got %d", len(lb))
+	}
+	want := []string{"bob", "carol", "alice", "dave"}
+	for i, n := range want {
+		if lb[i].Name != n {
+			t.Fatalf("position %d: want %s, got %s", i, n, lb[i].Name)
+		}
+	}
+}
+
+func TestLeaderboardIncludesNewlyJoinedPlayer(t *testing.T) {
+	g := NewGame()
+	g.Join("freshmeat")
+	lb := g.Leaderboard()
+	found := false
+	for _, e := range lb {
+		if e.Name == "freshmeat" {
+			found = true
+			if e.Peak != 1 {
+				t.Fatalf("new join peak should be 1, got %d", e.Peak)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("new player missing from leaderboard")
+	}
+}
+
 func TestSanitizeNameStripsControlChars(t *testing.T) {
 	got := sanitizeName("  he\x00\x07llo  ")
 	if got != "hello" {
